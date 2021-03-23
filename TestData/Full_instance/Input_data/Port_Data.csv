@@ -1,0 +1,21 @@
+Port,Subset,Investment,Frequency,Handling cost
+Ågotnes,All,0,1,500
+Askøy,City,25000000,1,500
+Dolvik,City,20000000,1,500
+Laksevåg,City,20000000,1,500
+Sandviken,City,23000000,1,500
+Steinestø,City,17000000,1,500
+Leivik,North,0,1,600
+Stamnes,North,0,1,600
+Bømlo,South,0,1,600
+Rubbestadneset,South,0,1,600
+Fesøy,North,0,1,600
+Flatøy,North,0,1,600
+Fusa,South,0,1,600
+Holsnøy,North,0,1,600
+Odda,South,0,1,600
+Gaupne,North,0,1,600
+Ølen,South,0,1,600
+Etne,South,0,1,600
+Årdalstangen,North,0,1,600
+Austevoll,South,0,1,600
