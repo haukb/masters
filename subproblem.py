@@ -87,6 +87,7 @@ class Subproblem:
         S = self.data.S_star
         T = self.data.T_star
 
+
         #Fetch sets from mp
         V = self.mp.data.V
         P_r = self.mp.data.P_r
@@ -96,6 +97,7 @@ class Subproblem:
         W = self.mp.data.W
 
         #Fetch data from mp
+        PROB_SCENARIO = self.mp.data.PROB_SCENARIO
         SAILING_COST = self.mp.data.SAILING_COST
         PORT_HANDLING = self.mp.data.PORT_HANDLING
         TRUCK_COST = self.mp.data.TRUCK_COST
@@ -109,13 +111,17 @@ class Subproblem:
         routes_vessels = self.variables.routes_vessels
 
         #Make subproblem objective function expression
-        SP_vessel_costs = (52/NUM_WEEKS) * gp.quicksum(gp.quicksum(SAILING_COST[v,r,t]*routes_vessels[(v,r,t,s)] + 
+        SP_vessel_opex = (52/NUM_WEEKS) * gp.quicksum(PROB_SCENARIO.iloc[0,s] * gp.quicksum(SAILING_COST[v,r,t]*routes_vessels[(v,r,t,s)] + 
         gp.quicksum(PORT_HANDLING[i,t]*(delivery_vessel[(i,v,r,t,w,s)]+pickup_vessel[(i,v,r,t,w,s)]) for i in P_r[r]) for v in V for r in R_v[v]) 
         for t in T for w in W for s in S)
 
-        SP_truck_costs = (52/NUM_WEEKS) * gp.quicksum(TRUCK_COST[i,k,t,s]*(delivery_truck[(i,k,t,w,s)]+pickup_truck[(i,k,t,w,s)]) for k in K for i in P_k[k] for t in T for w in W for s in S)
+        SP_truck_opex = (52/NUM_WEEKS) * gp.quicksum(PROB_SCENARIO.iloc[0,s] * TRUCK_COST[i,k,t,s]*(delivery_truck[(i,k,t,w,s)]+pickup_truck[(i,k,t,w,s)]) for k in K for i in P_k[k] 
+        for t in T for w in W for s in S)
 
-        m.setObjective(SP_vessel_costs + SP_truck_costs, gp.GRB.MINIMIZE)
+        self.data.vessel_opex = SP_vessel_opex
+        self.data.truck_opex = SP_truck_opex
+
+        m.setObjective(SP_vessel_opex + SP_truck_opex, gp.GRB.MINIMIZE)
 
     def _build_constraints(self):
         #Fetch model 
@@ -198,7 +204,7 @@ class Subproblem:
         """REMOVED FROM SUBPROBLEMS - to avoid infeasible solutions
         self.constraints.c12 = m.addConstrs(gp.quicksum(routes_vessels[(v,r,t,s)] for v in V for r in R_vi[v,i]) >= 
         PORTS.iloc[i,2]*gp.quicksum(BETA.iloc[n,t]*ports_free[(i, n)] for n in N_s[s]) 
-        for i in P for t in T for s in S)
+        for i in P for t in T for s  in S)
         """
 
         self.constraints.c13 = m.addConstrs(gp.quicksum(BETA.iloc[n,t]*vessels_free[(v, n)] for n in N_s[s]) >= \

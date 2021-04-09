@@ -99,11 +99,11 @@ def distance2time_cost(DISTANCE, NUM_VISITS, vessel_capacity, sailing_speed, han
 
     return route_time, sailing_cost
 
-def preprocess_routes(instance, max_port_visits):
+def preprocess_routes(INSTANCE, max_port_visits):
 
-    PORT_DISTANCES = pd.read_csv(f'TestData/{instance}/Input_data/Port_Distances.csv', index_col=0)
-    PORT_SUBSET = pd.read_csv(f'TestData/{instance}/Input_data/Port_Data.csv', index_col=0).loc[:,'Subset']
-    VESSEL_DATA = pd.read_csv(f'TestData/{instance}/Input_data/Vessel_Data.csv', index_col=0)
+    PORT_DISTANCES = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Port_Distances.csv', index_col=0)
+    PORT_SUBSET = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Port_Data.csv', index_col=0).loc[:,'Subset']
+    VESSEL_DATA = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Vessel_Data.csv', index_col=0)
 
     subset_list = PORT_SUBSET.unique()[1:]
     SUBSETS = generate_subsets(subset_list, PORT_SUBSET)
@@ -127,10 +127,10 @@ def preprocess_routes(instance, max_port_visits):
     #HARD CODED
     vessel_route_feasibility_df = pd.DataFrame.from_dict(dict.fromkeys(['0','1','2'], np.ones(len(ROUTES))), orient = 'index') #All vessels can sail all routes
 
-    allroutes_df.to_csv(f'TestData/{instance}/Generated_data/Routes.csv')
-    route_time_df.to_csv(f'TestData/{instance}/Generated_data/Route_Sailing_Time.csv')
-    route_cost_df.to_csv(f'TestData/{instance}/Generated_data/Route_Sailing_Cost.csv')
-    vessel_route_feasibility_df.to_csv(f'TestData/{instance}/Generated_data/Route_Feasibility.csv')
+    allroutes_df.to_csv(f'Data/Instances/{INSTANCE}/Generated_data/Routes.csv')
+    route_time_df.to_csv(f'Data/Instances/{INSTANCE}/Generated_data/Route_Sailing_Time.csv')
+    route_cost_df.to_csv(f'Data/Instances/{INSTANCE}/Generated_data/Route_Sailing_Cost.csv')
+    vessel_route_feasibility_df.to_csv(f'Data/Instances/{INSTANCE}/Generated_data/Route_Feasibility.csv')
 
     return
 

@@ -15,6 +15,8 @@ from special_set_generators import beta_set_generator, arc_set_generator, port_r
 from cost_generators import vessel_investment, port_investment, sailing_cost, truck_cost, port_handling_cost
 from short_term_uncertainty import draw_weekly_demand
 from misc_functions import get_same_year_nodes
+from feasibility_preprocessing import preprocess_feasibility
+from route_preprocessing import preprocess_routes
 
 # Class which can have attributes set.
 class expando(object):
@@ -22,16 +24,15 @@ class expando(object):
 
 # Master problem
 class Master_problem:
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 1, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.001, MAX_ITERS=10, hot_start = True):
+    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 1, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.001, MAX_ITERS=300, warm_start = True):
         self.INSTANCE = INSTANCE
         self.MAX_ITERS = MAX_ITERS
         self.iter = 0
-        self.hot_start = hot_start
+        self.warm_start = warm_start
         self.data = expando()
         self.variables = expando()
         self.constraints = expando()
         self.results = expando()
-        self.count_loops = 0
         self._load_data(INSTANCE, NUM_WEEKS, NUM_SCENARIOS, NUM_VESSELS, MAX_PORT_VISITS, DRAW, WEEKLY_ROUTING, DISCOUNT_FACTOR, BENDERS_GAP)
         self._build_model()
     ###
@@ -48,23 +49,29 @@ class Master_problem:
         self.data.WEEKLY_ROUTING = WEEKLY_ROUTING
         self.data.DISCOUNT_FACTOR = DISCOUNT_FACTOR
         self.data.BENDERS_GAP = BENDERS_GAP
+
         #INSTANCE DATA
         #Input data
-        CUSTOMERS = self.data.CUSTOMERS = pd.read_csv(f'TestData/{INSTANCE}/Input_data/Customer_Data.csv', index_col=0)
-        PORTS = self.data.PORTS = pd.read_csv(f'TestData/{INSTANCE}/Input_data/Port_Data.csv', index_col=0)
-        VESSELS = self.data.VESSELS = pd.read_csv(f'TestData/{INSTANCE}/Input_data/Vessel_Data.csv', index_col=0)[:NUM_VESSELS]
-        NODES_IN_SCENARIO = self.data.NODES_IN_SCENARIO = pd.read_csv(f'TestData/Scenarios/Nodes_in_Scenario_{NUM_SCENARIOS}.csv', index_col=0)
-        YEAR_OF_NODE = self.data.YEAR_OF_NODE = pd.read_csv(f'TestData/Scenarios/Year_of_Node_{NUM_SCENARIOS}.csv', index_col=0)
-        ROUTES = self.data.ROUTES = pd.read_csv(f'TestData/{INSTANCE}/Generated_data/Routes.csv', index_col=0)
-        ROUTE_FEASIBILITY = self.data.ROUTE_FEASIBILITY = pd.read_csv(f'TestData/{INSTANCE}/Generated_data/Route_Feasibility.csv', index_col=0)
-        PORT_CUSTOMER_FEASIBILITY = self.data.PORT_CUSTOMER_FEASIBILITY = pd.read_csv(f'TestData/{INSTANCE}/Generated_data/Port_Customer_Feasibility.csv', index_col=0)
-        PORT_CUSTOMER_DISTANCES = self.data.PORT_CUSTOMER_DISTANCES = pd.read_csv(f'TestData/{INSTANCE}/Input_data/Port_Customer_Distances.csv', index_col=0)
-        CO2_SCALE_FACTOR = self.data.CO2_SCALE_FACTOR = pd.read_csv(f'TestData/Scenarios/CO2_Scale_Factor_{NUM_SCENARIOS}.csv', index_col=0)
-        ROUTE_SAILING_COST = self.data.ROUTE_SAILING_COST = pd.read_csv(f'TestData/{INSTANCE}/Generated_data/Route_Sailing_Cost.csv', index_col=0)
-        self.data.SCENARIOYEAR_GROWTH_FACTOR = pd.read_csv(f'TestData/Scenarios/ScenarioYear_Growth_Factor_{NUM_SCENARIOS}.csv', index_col=0)
-        self.data.PROB_SCENARIO = pd.read_csv(f'TestData/Scenarios/Prob_Scenario_{NUM_SCENARIOS}.csv', index_col=0)
-        self.data.TIMEPERIOD_DURATION = pd.read_csv(f'TestData/{INSTANCE}/Input_data/Timeperiod_Duration.csv', index_col=0)
-        self.data.ROUTE_SAILING_TIME = pd.read_csv(f'TestData/{INSTANCE}/Generated_data/Route_Sailing_Time.csv', index_col=0)
+        CUSTOMERS = self.data.CUSTOMERS = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Customer_Data.csv', index_col=0)
+        CUSTOMERS['Scenarios'] = CUSTOMERS['Scenarios'].apply(str)
+        PORTS = self.data.PORTS = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Port_Data.csv', index_col=0)
+        VESSELS = self.data.VESSELS = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Vessel_Data.csv', index_col=0)[:NUM_VESSELS]
+        PORT_CUSTOMER_DISTANCES = self.data.PORT_CUSTOMER_DISTANCES = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Port_Customer_Distances.csv', index_col=0)
+        self.data.TIMEPERIOD_DURATION = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Timeperiod_Duration.csv', index_col=0)
+        #Nodes and scenario data
+        NODES_IN_SCENARIO = self.data.NODES_IN_SCENARIO = pd.read_csv(f'Data/Nodes_and_scenarios/Nodes_in_Scenario_{NUM_SCENARIOS}.csv', index_col=0)
+        YEAR_OF_NODE = self.data.YEAR_OF_NODE = pd.read_csv(f'Data/Nodes_and_scenarios/Year_of_Node_{NUM_SCENARIOS}.csv', index_col=0)
+        CO2_SCALE_FACTOR = self.data.CO2_SCALE_FACTOR = pd.read_csv(f'Data/Nodes_and_scenarios/CO2_Scale_Factor_{NUM_SCENARIOS}.csv', index_col=0)
+        self.data.SCENARIOYEAR_GROWTH_FACTOR = pd.read_csv(f'Data/Nodes_and_scenarios/ScenarioYear_Growth_Factor_{NUM_SCENARIOS}.csv', index_col=0)
+        self.data.PROB_SCENARIO = pd.read_csv(f'Data/Nodes_and_scenarios/Prob_Scenario_{NUM_SCENARIOS}.csv', index_col=0)
+        #Preprocess additional data
+        self._preprocess_routing()
+        #Generated data
+        ROUTES = self.data.ROUTES = pd.read_csv(f'Data/Instances/{INSTANCE}/Generated_data/Routes.csv', index_col=0)
+        ROUTE_FEASIBILITY = self.data.ROUTE_FEASIBILITY = pd.read_csv(f'Data/Instances/{INSTANCE}/Generated_data/Route_Feasibility.csv', index_col=0)
+        PORT_CUSTOMER_FEASIBILITY = self.data.PORT_CUSTOMER_FEASIBILITY = pd.read_csv(f'Data/Instances/{INSTANCE}/Generated_data/Port_Customer_Feasibility.csv', index_col=0)
+        ROUTE_SAILING_COST = self.data.ROUTE_SAILING_COST = pd.read_csv(f'Data/Instances/{INSTANCE}/Generated_data/Route_Sailing_Cost.csv', index_col=0)
+        self.data.ROUTE_SAILING_TIME = pd.read_csv(f'Data/Instances/{INSTANCE}/Generated_data/Route_Sailing_Time.csv', index_col=0)
         #Set sizes
         NUM_CUSTOMERS = self.data.NUM_CUSTOMERS = CUSTOMERS.shape[0]
         NUM_YEARS = self.data.NUM_YEARS = 20 #This is never changed
@@ -91,16 +98,15 @@ class Master_problem:
         self.data.K_i = [[int(x) for x in PORT_CUSTOMER_FEASIBILITY.iloc[:,i].dropna().to_numpy()] for i in P] #List of list with all serviceable customer k for a port i
         self.data.S_n = scenario_node_set_generator(NODES_IN_SCENARIO, N, S)
         self.data.T_n = year_node_set_generator(NODES_IN_SCENARIO, YEAR_OF_NODE, NUM_YEARS, N)
-
         #Generate cost data
         self.data.VESSEL_INVESTMENT = vessel_investment(VESSELS,YEAR_OF_NODE, V, N, DISCOUNT_FACTOR)
         self.data.PORT_INVESTMENT = port_investment(PORTS[['Investment']],YEAR_OF_NODE, P, N, DISCOUNT_FACTOR)
         self.data.SAILING_COST = sailing_cost(ROUTE_SAILING_COST, V, R, T, DISCOUNT_FACTOR)
         self.data.TRUCK_COST = truck_cost(PORT_CUSTOMER_DISTANCES, CUSTOMERS, PORTS, CO2_SCALE_FACTOR, P, K, T, S)
         self.data.PORT_HANDLING = port_handling_cost(PORTS[['Handling cost']], P, T, DISCOUNT_FACTOR)
-
         #Make demand data
         self._make_demand_data()
+
         #GENERAL DATA
         self.data.cutlist = []
         self.data.upper_bounds = [GRB.INFINITY]
@@ -128,7 +134,7 @@ class Master_problem:
         self.data.PICKUP = self.data.DELIVERY.copy()
 
         #Read the WVF
-        WEEKLY_VARIATION_FACTOR = np.fromfile(f'TestData/{self.INSTANCE}/Generated_data/WEEKLY_VARIATION_FACTOR.csv').reshape(self.data.NUM_CUSTOMERS, 52, self.data.NUM_YEARS)
+        WEEKLY_VARIATION_FACTOR = np.fromfile(f'Data/Instances/{self.INSTANCE}/Generated_data/Weekly_Variation_Factor.csv').reshape(self.data.NUM_CUSTOMERS, 52, self.data.NUM_YEARS)
 
         #Fill the matrices
         for k in self.data.K:
@@ -164,6 +170,11 @@ class Master_problem:
                         baseline_pickup = pickup_split*np.prod(self.data.SCENARIOYEAR_GROWTH_FACTOR.iloc[s,:t+1])
                         self.data.PICKUP[k,t,w,s] = int(baseline_pickup*wvf)*include_customer
 
+        return
+    
+    def _preprocess_routing(self):
+        preprocess_feasibility(self.INSTANCE)
+        preprocess_routes(self.INSTANCE, self.data.MAX_PORT_VISITS)
         return
 
     ###
@@ -217,7 +228,6 @@ class Master_problem:
         vessels = self.variables.vessels
         ports = self.variables.ports
         #Make the objective function for the master problem
-        #gp.quicksum(expression for a in A)
         MP_obj_func = gp.quicksum(PROB_SCENARIO.iloc[0,s]*
         gp.quicksum(gp.quicksum(VESSEL_INVESTMENT[v,n]*vessels[(v, n)] for v in V) + gp.quicksum(PORT_INVESTMENT[i,n]*ports[(i, n)] for i in P) 
         for n in N_s[s]) for s in S) + self.variables.phi
@@ -234,14 +244,14 @@ class Master_problem:
         if not hasattr(self, 'subproblems'):# or force_submodel_rebuild:
             self.subproblems = {n: Subproblem(self, NODE=n) for n in self.data.N}
         # Update fixed variables for subproblems and rebuild.
-        if self.hot_start:
-            self._hot_start()
+        if self.warm_start:
+            self._warm_start()
             [sp.update_fixed_vars(self.fp) for sp in self.subproblems.values()]
             [sp.solve() for sp in self.subproblems.values()]
             self._add_cut()
             self._save_vars(self.fp)
             self.iter += 1
-            self.hot_start = False
+            self.warm_start = False
 
         def callback(m, where): #Define within the solve function to have access to the mp
             if where == GRB.Callback.MIPSOL:
@@ -249,7 +259,7 @@ class Master_problem:
                 ub = mp.data.upper_bounds[-1]
                 lb = mp.data.lower_bounds[-1]
                 ub_min = min(mp.data.upper_bounds)
-                gap = (ub_min - lb)  / lb * 100
+                gap = (ub - lb)  / lb * 100
                 print(f'>>> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {gap} %')
                 # 1. Save the variables of the current mp-solution
                 mp._save_vars()
@@ -265,8 +275,7 @@ class Master_problem:
                     m.terminate()
                     # 2.3 Number of iterations
                 elif mp.iter > mp.MAX_ITERS:
-                    print(f'**MAX ITERS**')
-                    print(mp.iter)
+                    print(f'**MAX ITERATIONS REACHED {mp.MAX_ITERS}**')
                     m.terminate()
 
                 # 2. Solve subproblems
@@ -294,9 +303,9 @@ class Master_problem:
 
         return
     
-    def _hot_start(self):
+    def _warm_start(self):
 
-        self.fp = Full_problem(self)
+        self.fp = Full_problem(self, SCENARIOS = [4])
         self.fp.solve()
 
         return
@@ -308,20 +317,15 @@ class Master_problem:
         V = self.data.V
         P = self.data.P
         N = self.data.N
-        S_n = self.data.S_n
-        PROB_SCENARIO = self.data.PROB_SCENARIO
 
         # Define dictionaries for sensitivities and objective values of the subproblems
         z_sub = dict.fromkeys(N)
-        prob_node = dict.fromkeys(N)
         sens_ports = pd.DataFrame(data = np.zeros(shape=(len(P),len(N))))
         sens_vessels = pd.DataFrame(data = np.zeros(shape=(len(V),len(N))))
 
         for n in N:
-            #Calculate probability for being in a node by summing up scenarios where the node is present
-            prob_node[n] = sum([PROB_SCENARIO.iloc[0,s] for s in S_n[n]])
             # Get the probability adjusted objective values of the subproblems 
-            z_sub[n] = self.subproblems[n].m.objVal
+            z_sub[n] = self.subproblems[n].m.ObjVal
             for v in V:
                 sens_vessels.iloc[v,n] = self.subproblems[n].constraints.fix_vessels[(v,n)].pi
             for i in P:
@@ -329,15 +333,15 @@ class Master_problem:
         
         # Generate cut
         lhs = self.variables.phi
-        rhs = gp.quicksum(prob_node[n]*(z_sub[n]+
+        rhs = gp.quicksum((z_sub[n]+
         gp.quicksum(sens_vessels.iloc[v,n] * (self.variables.vessels[(v,n)]-self.subproblems[n].variables.vessels_free[(v,n)].x) for v in V) +
         gp.quicksum(sens_ports.iloc[i,n] * (self.variables.ports[(i,n)]-self.subproblems[n].variables.ports_free[(i,n)].x) for i in P[1:]))
         for n in N)
 
-        if not self.hot_start: #If not being in the HOT START run, add the constraints as a lazy constraint
+        if not self.warm_start: #If not being in the HOT START run, add the constraints as a lazy constraint
             m.cbLazy(lhs >= rhs)
         else:
-            self.constraints.hot_start_cut = m.addConstr(lhs >= rhs)
+            self.constraints.warm_start_cut = m.addConstr(lhs >= rhs)
         return
 
     ###
@@ -347,22 +351,18 @@ class Master_problem:
         m = self.m
 
         N = self.data.N
-        S_n = self.data.S_n
 
         #Fetch the current value of the master problem and the artificial variable phi at the current MIPSOL in the callback
-        z_master = m.cbGet(GRB.Callback.MIPSOL_OBJ)
+        z_master = m.cbGet(GRB.Callback.MIPSOL_OBJBST)
         phi_val = m.cbGetSolution(self.variables.phi)
-
-        PROB_SCENARIO = self.data.PROB_SCENARIO
 
         z_sub_total = 0
 
         for n in N:
             #Calculate probability for being in a node by summing up scenarios where the node is present
-            prob_node = sum([PROB_SCENARIO.iloc[0,s] for s in S_n[n]])
             # Get the probability adjusted objective values of the subproblems 
             z_sub = self.subproblems[n].m.objVal
-            z_sub_total += z_sub*prob_node
+            z_sub_total += z_sub
 
         # The best upper bound is the best incumbent with phi replaced by the sub problems' actual cost
         self.data.ub = z_master - phi_val + z_sub_total

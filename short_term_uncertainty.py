@@ -12,11 +12,11 @@ def draw_weekly_demand(baseline_demand, customer_type):
         
     return max(min(random_demand,baseline_demand*2),0) #ensures that demand can't be negative
 
-def generate_random_weeks(instances):
+def generate_random_weeks(instances, SCENARIOS):
 
     for inst in instances:
-        CUSTOMER_DATA =  pd.read_csv(f'TestData/{inst}/Input_data/Customer_Data.csv', index_col=0)
-        SCENARIOYEAR_GROWTH_FACTOR = pd.read_csv(f'TestData/{inst}/Input_data/ScenarioYear_Growth_Factor.csv', index_col=0)
+        CUSTOMER_DATA =  pd.read_csv(f'Data/Instances/{inst}/Input_data/Customer_Data.csv', index_col=0)
+        SCENARIOYEAR_GROWTH_FACTOR = pd.read_csv(f'Data/Nodes_and_scenarios/ScenarioYear_Growth_Factor_{SCENARIOS}.csv', index_col=0)
 
         num_customers = CUSTOMER_DATA.shape[0]
         _, num_years = SCENARIOYEAR_GROWTH_FACTOR.shape
@@ -35,13 +35,15 @@ def generate_random_weeks(instances):
                     weekly_variation_factor[c,w,t] = draw_weekly_demand(1, customer_type) 
         
         ravelled = np.ravel(weekly_variation_factor)
-        filename = f'TestData/{inst}/Generated_data/Weekly_Variation_Factor.csv'
+        filename = f'Data/Instances/{inst}/Generated_data/Weekly_Variation_Factor.csv'
         ravelled.tofile(filename)
     
     return
 
 if __name__ == '__main__':
-    #instances = ['Full_instance'] #This line choses for which instance to generate new random weeks
+    #np.random.seed(100) #Can be used to get same random realization
+    INSTANCES = ['Small'] #This line choses for which instance to generate new random weeks
+    SCENARIOS = 27
     #Wathc out, do not run this file unless you want to replace the current random weeks
     
-    generate_random_weeks(instances)
+    #generate_random_weeks(INSTANCES, SCENARIOS)

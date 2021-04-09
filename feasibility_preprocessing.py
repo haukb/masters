@@ -18,12 +18,12 @@ def port_customer_feasibility_dataframe_generator(PORT2CUSTOMER_DISTANCES):
 
     return df
 
-def preprocess_feasibility(instance):
+def preprocess_feasibility(INSTANCE):
 
     try:
-        PORT2CUSTOMER_DISTANCES = pd.read_csv(f'TestData/{instance}/Input_data/Port_Customer_Distances.csv', index_col=0)
+        PORT2CUSTOMER_DISTANCES = pd.read_csv(f'Data/Instances/{INSTANCE}/Input_data/Port_Customer_Distances.csv', index_col=0)
         df = port_customer_feasibility_dataframe_generator(PORT2CUSTOMER_DISTANCES)
-        df.to_csv(f'TestData/{instance}/Generated_data/Port_Customer_Feasibility.csv')
+        df.to_csv(f'Data/Instances/{INSTANCE}/Generated_data/Port_Customer_Feasibility.csv')
     except:
         print('Could not make port customer feasibility dataframe')
 
