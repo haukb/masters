@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from itertools import product
 
+from time import time
 # Import other classes
 from subproblem import Subproblem
 from full_problem import Full_problem
@@ -24,7 +25,7 @@ class expando(object):
 
 # Master problem
 class Master_problem:
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 1, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.001, MAX_ITERS=300, warm_start = True):
+    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 3, MAX_PORT_VISITS = 1, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=30, warm_start = True):
         self.INSTANCE = INSTANCE
         self.MAX_ITERS = MAX_ITERS
         self.iter = 0
@@ -35,6 +36,10 @@ class Master_problem:
         self.results = expando()
         self._load_data(INSTANCE, NUM_WEEKS, NUM_SCENARIOS, NUM_VESSELS, MAX_PORT_VISITS, DRAW, WEEKLY_ROUTING, DISCOUNT_FACTOR, BENDERS_GAP)
         self._build_model()
+
+
+        self.t0_mp = time()
+        self.t1_mp = time()
     ###
     #   Loading functions
     ###
@@ -209,6 +214,8 @@ class Master_problem:
         #Only open port in one time, to hinder "double" opening for dual values in several nodes
         self.constraints.max_ports_in_scenario = self.m.addConstrs(gp.quicksum(self.variables.ports[(i,n)] for n in self.data.N_s[s]) <= 1 for i in self.data.P for s in self.data.S)
         self.constraints.max_number_of_vessels = self.m.addConstrs(gp.quicksum(self.variables.vessels[(v,n)] for n in self.data.N_s[s]) <= 10 for v in self.data.V for s in self.data.S)
+        #self.constraints.limit_vessel_decrease = self.m.addConstrs(self.variables.vessels[(v,n)] + 2 >= 0 for v in self.data.V for n in self.data.N)
+        #self.constraints.limit_vessel_increase = self.m.addConstrs(self.variables.vessels[(v,n)] - 2 <= 0 for v in self.data.V for n in self.data.N)
         return
 
     def _build_objective(self):
@@ -250,17 +257,23 @@ class Master_problem:
             [sp.solve() for sp in self.subproblems.values()]
             self._add_cut()
             self._save_vars(self.fp)
+            #self._update_vessel_changes(self.fp)
             self.iter += 1
             self.warm_start = False
 
         def callback(m, where): #Define within the solve function to have access to the mp
             if where == GRB.Callback.MIPSOL:
+                self.t1_mp = time()
+                print(f'Time spent solving MP: {self.t1_mp-self.t0_mp}')
                 # 0. Update bounds
-                ub = mp.data.upper_bounds[-1]
-                lb = mp.data.lower_bounds[-1]
-                ub_min = min(mp.data.upper_bounds)
-                gap = (ub - lb)  / lb * 100
-                print(f'>>> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {gap} %')
+                try: 
+                    ub = mp.data.upper_bounds[-1]
+                    lb = mp.data.lower_bounds[-1]
+                    ub_min = min(mp.data.upper_bounds)
+                    gap = (ub - lb)  / lb * 100
+                    print(f'>>> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {gap} %')
+                except: 
+                    print(f'>>> Iteration {mp.iter}. Bounds not applicable')
                 # 1. Save the variables of the current mp-solution
                 mp._save_vars()
                 # 2. Check termination criterias: Relative gap, Absolute gap & Number of iterations 
@@ -280,19 +293,24 @@ class Master_problem:
 
                 # 2. Solve subproblems
                 [sp.update_fixed_vars() for sp in mp.subproblems.values()]
+                t0_sp = time()
                 [sp.solve() for sp in mp.subproblems.values()]
+                t1_sp = time()
+                print(f'Time spent solving SP: {t1_sp-t0_sp}')
 
                 # 3. Add a cut to the mp
                 mp._add_cut()
+                #mp._update_vessel_changes() not working within callback
 
                 # 4. Update the bounds on the mp
                 mp._update_bounds()
 
                 # 5. Updater the number of iterations
                 mp.iter += 1
+                self.t0_mp = time()
 
             return
-
+        
         m.optimize(callback)
         """NEXT STEPS - to ensure that Bender's algorithm don't stop when MP finde optimal solution
         if bounds not met: 
@@ -399,4 +417,24 @@ class Master_problem:
                     for i in self.data.P:
                         self.data.ports[(i,n)].append(model.variables.ports[(i,n_solved)].x)
 
+        return
+
+    def _update_vessel_changes(self, model = None):
+        if model == None:
+            for n in self.data.N:
+                for v in self.data.V:
+                    vessel_val = self.m.cbGetSolution(self.variables.vessels[(v,n)])
+                    self.constraints.limit_vessel_decrease[(v,n)].rhs = vessel_val
+                    self.constraints.limit_vessel_increase[(v,n)].rhs = vessel_val
+                print(vessel_val)
+        else: 
+            for n_solved in self.data.N_s[model.data.S[0]]:
+                N = get_same_year_nodes(n_solved, self.data.N, self.data.YEAR_OF_NODE)
+                for n in N:
+                    for v in self.data.V:
+                        vessel_val = model.variables.vessels[(v,n_solved)].x
+                        self.constraints.limit_vessel_decrease[(v,n)].rhs = vessel_val
+                        self.constraints.limit_vessel_increase[(v,n)].rhs = vessel_val
+        self.m.update()
+        
         return
