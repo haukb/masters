@@ -216,10 +216,8 @@ class Subproblem:
 
 
         self.constraints.fix_vessels = m.addConstrs(vessels_free[(v,n)] == 0 for v in V for n in N)
-        #self.constraints.fix_vessels[(0,0)].rhs = 1
 
         self.constraints.fix_ports = m.addConstrs(ports_free[(i, n)] == 0 for i in P for n in N)
-        #self.constraints.fix_ports[(2,0)].rhs = 1
 
         return
 
@@ -228,10 +226,10 @@ class Subproblem:
         if model is None:
             for n in self.mp.data.N:
                 for i in self.mp.data.P:
-                    port_val = self.mp.m.cbGetSolution(self.mp.variables.ports[(i,n)])
+                    port_val = self.mp.variables.ports[(i,n)].x
                     self.constraints.fix_ports[(i,n)].rhs = port_val
                 for v in self.mp.data.V:
-                    vessel_val = self.mp.m.cbGetSolution(self.mp.variables.vessels[(v,n)])
+                    vessel_val = self.mp.variables.vessels[(v,n)].x
                     self.constraints.fix_vessels[(v,n)].rhs = vessel_val
 
         else: # Only used for the hot start iteration

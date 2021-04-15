@@ -1,4 +1,5 @@
 from math import isnan
+from numpy.lib.arraysetops import unique
 import pandas as pd
 import numpy as np
 
@@ -100,3 +101,14 @@ def year_node_set_generator(NODES_IN_SCENARIO, YEAR_OF_NODE, NUM_YEARS, N):
     T_n = [year_span_dict[YEAR_OF_NODE.iloc[0,n]] for n in N]
     
     return T_n
+
+def parent_node_set_generator(NODES_IN_SCENARIO, N):
+    NP_n = [[] for n in N]
+
+    for i in range(NODES_IN_SCENARIO.shape[0]):
+        nodes_in_year = NODES_IN_SCENARIO.iloc[i,:].tolist()
+        for n in set(nodes_in_year):
+            idx = nodes_in_year.index(n)
+            NP_n[n] = NODES_IN_SCENARIO.iloc[:i+1, idx].tolist()
+         
+    return NP_n
