@@ -15,7 +15,7 @@ from full_problem import Full_problem
 from special_set_generators import beta_set_generator, arc_set_generator, port_route_set_generator, route_vessel_set_generator, route_vessel_port_set_generator, port_customer_set_generator, scenario_node_set_generator, year_node_set_generator, parent_node_set_generator
 from cost_generators import vessel_investment, port_investment, sailing_cost, truck_cost, port_handling_cost
 from short_term_uncertainty import draw_weekly_demand
-from misc_functions import get_same_year_nodes
+from misc_functions import get_same_year_nodes, nodes_with_new_investments
 from feasibility_preprocessing import preprocess_feasibility
 from route_preprocessing import preprocess_routes
 
@@ -25,7 +25,7 @@ class expando(object):
 
 # Master problem
 class Master_problem:
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 1, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=100, warm_start = True):
+    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 3, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=10, warm_start = True):
         self.INSTANCE = INSTANCE
         self.MAX_ITERS = MAX_ITERS
         self.iter = 0
@@ -256,18 +256,20 @@ class Master_problem:
         while True: 
             mp.iter += 1
             # 1. Solve master problem and save variables
-            t0_mp = time()
+            t0 = time()
             m.optimize()
             mp._save_vars()
-            t1_mp = time()
-            print(f'>>>Time spent solving MP: {round(t1_mp-t0_mp,3)}')
+            t1 = time()
+            print(f'>>>Time spent solving MP: {round(t1-t0,3)}')
 
             # 2. Solve subproblems
-            [sp.update_fixed_vars() for sp in mp.subproblems.values()]
-            t0_sp = time()
-            [sp.solve() for sp in mp.subproblems.values()]
-            t1_sp = time()
-            print(f'>>Time spent solving SP: {round(t1_sp-t0_sp,3)}')
+            N_changed = nodes_with_new_investments(mp.data.vessels, mp.data.ports, mp.data.V, mp.data.P, mp.data.N, mp.data.NP_n)
+            t0 = time()
+            for n in N_changed: #OLD replace N_changed with mp.data.N 
+                mp.subproblems[n].update_fixed_vars()
+                mp.subproblems[n].solve()
+            t1 = time()
+            print(f'>>Time spent solving SP: {round(t1-t0,3)}')
 
              # 3. Update the bounds on the mp
             mp._update_bounds()
@@ -277,13 +279,13 @@ class Master_problem:
                 lb = mp.data.lower_bounds[-1] #lb increasing in each iteration, lb max is the last element
                 ub = min(mp.data.upper_bounds) #ub is the lowest ub found up until the current iteration.
                 gap = (ub - lb)  / lb * 100
-                print(f'> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {round(gap,1)} %')
+                print(f'> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {round(gap,2)} %')
             except:
                 print(f'> Iteration {mp.iter}. Bounds not applicable')
 
                 # 4.1 Relative gap < 1%
-            if ub <= lb + 0.01*lb:
-                print(f'**OPTIMAL SOLUTION FOUND**')
+            if ub <= lb + 0.001*lb:
+                print(f'**OPTIMAL SOLUTION FOUND: {mp.data.upper_bounds[-1]}**')
                 break
                 # 4.2 Absolute gap   
             elif ub - lb <= 1e6:
@@ -297,7 +299,7 @@ class Master_problem:
 
             # 5. Add a cut to the mp and update the allowed vessel changes
             #mp._add_unicut()
-            mp._add_multicut()
+            mp._add_multicut(N_changed)
             mp._update_vessel_changes()
 
         return
@@ -310,7 +312,7 @@ class Master_problem:
         [sp.update_fixed_vars(self.fp) for sp in self.subproblems.values()]
         [sp.solve() for sp in self.subproblems.values()]
         #self._add_unicut()
-        self._add_multicut()
+        self._add_multicut(self.data.N)
         self._save_vars(self.fp)
         self._update_vessel_changes(self.fp)
 
@@ -349,13 +351,12 @@ class Master_problem:
 
         return
 
-    def _add_multicut(self):
+    def _add_multicut(self, N):
         m = self.m
 
         #Imports sets and other necessary data
         V = self.data.V
         P = self.data.P
-        N = self.data.N
         NP_n = self.data.NP_n
 
         sens_ports = pd.DataFrame(data = np.zeros(len(P)))
@@ -368,7 +369,7 @@ class Master_problem:
             sens_ports = [self.subproblems[n].constraints.fix_ports[(i,n)].pi for i in P]
             rhs = (z_sub + 
             gp.quicksum(sens_vessels[v] * gp.quicksum(self.variables.vessels[(v,m)]-self.subproblems[n].variables.vessels_free[(v,m)].x for m in NP_n[n]) for v in V) + 
-            gp.quicksum(sens_ports[i] * (self.variables.ports[(i,n)]-self.subproblems[n].variables.ports_free[(i,n)].x) for i in P[1:]))
+            gp.quicksum(sens_ports[i] * gp.quicksum(self.variables.ports[(i,m)]-self.subproblems[n].variables.ports_free[(i,m)].x for m in NP_n[n]) for i in P[1:]))
             m.addConstr(lhs >= rhs)
 
         return
