@@ -247,7 +247,7 @@ class Master_problem:
 
         # Only build subproblems if they don't exist or a rebuild is forced.
         if not hasattr(self, 'subproblems'):# or force_submodel_rebuild:
-            self.subproblems = {n: Subproblem(self, NODE=n) for n in self.data.N}
+            self.subproblems = {n: Subproblem(NODE=n, mp=self) for n in self.data.N}
         
         #Warm start algorithm with solution from deteministic problem
         if self.warm_start:
@@ -266,8 +266,9 @@ class Master_problem:
             N_changed = nodes_with_new_investments(mp.data.vessels, mp.data.ports, mp.data.V, mp.data.P, mp.data.N, mp.data.NP_n)
             t0 = time()
             for n in N_changed: #OLD replace N_changed with mp.data.N 
-                mp.subproblems[n].update_fixed_vars()
-                mp.subproblems[n].solve()
+                sp = mp.subproblems[n]
+                sp.update_fixed_vars()
+                sp.solve()
             t1 = time()
             print(f'>>Time spent solving SP: {round(t1-t0,3)}')
 
@@ -287,12 +288,7 @@ class Master_problem:
             if ub <= lb + 0.001*lb:
                 print(f'**OPTIMAL SOLUTION FOUND: {mp.data.upper_bounds[-1]}**')
                 break
-                # 4.2 Absolute gap   
-            elif ub - lb <= 1e6:
-                print(f'**ABSOLUTE GAP**')
-                print(mp.iter)
-                break
-                # 4.3 Number of iterations
+                # 4.2 Number of iterations
             elif mp.iter > mp.MAX_ITERS:
                 print(f'**MAX ITERATIONS REACHED {mp.MAX_ITERS}**')
                 break
@@ -308,13 +304,15 @@ class Master_problem:
 
         self.fp = Full_problem(self, SCENARIOS = [4])
         self.fp.solve()
+        self._save_vars(self.fp)
 
-        [sp.update_fixed_vars(self.fp) for sp in self.subproblems.values()]
-        [sp.solve() for sp in self.subproblems.values()]
+        for n in self.data.N:
+            self.subproblems[n].update_fixed_vars() 
+            self.subproblems[n].solve()
         #self._add_unicut()
         self._add_multicut(self.data.N)
-        self._save_vars(self.fp)
         self._update_vessel_changes(self.fp)
+        self.warm_start = False
 
         return
             
@@ -359,17 +357,14 @@ class Master_problem:
         P = self.data.P
         NP_n = self.data.NP_n
 
-        sens_ports = pd.DataFrame(data = np.zeros(len(P)))
-        sens_vessels = pd.DataFrame(data = np.zeros(len(V)))
-
         for n in N: 
             lhs = self.variables.phi[n]
-            z_sub = self.subproblems[n].m.ObjVal
-            sens_vessels = [self.subproblems[n].constraints.fix_vessels[(v,n)].pi for v in V]
-            sens_ports = [self.subproblems[n].constraints.fix_ports[(i,n)].pi for i in P]
+            z_sub = self.subproblems[n].data.obj_vals[-1]
+            sens_vessels = self.subproblems[n].data.sens_vessels[-1]
+            sens_ports = self.subproblems[n].data.sens_ports[-1]
             rhs = (z_sub + 
-            gp.quicksum(sens_vessels[v] * gp.quicksum(self.variables.vessels[(v,m)]-self.subproblems[n].variables.vessels_free[(v,m)].x for m in NP_n[n]) for v in V) + 
-            gp.quicksum(sens_ports[i] * gp.quicksum(self.variables.ports[(i,m)]-self.subproblems[n].variables.ports_free[(i,m)].x for m in NP_n[n]) for i in P[1:]))
+            gp.quicksum(sens_vessels[v] * gp.quicksum(self.variables.vessels[(v,m)]-self.data.vessels[(v,m)][-1] for m in NP_n[n]) for v in V) + 
+            gp.quicksum(sens_ports[i] * gp.quicksum(self.variables.ports[(i,m)]-self.data.ports[(i,m)][-1] for m in NP_n[n]) for i in P[1:]))
             m.addConstr(lhs >= rhs)
 
         return
@@ -385,7 +380,7 @@ class Master_problem:
         #Fetch the current value of the master problem and the artificial variable phi at the current MIPSOL in the callback
         z_master = m.ObjVal
         phi_val = sum([self.variables.phi[n].x for n in N])
-        z_sub_total = sum([self.subproblems[n].m.ObjVal for n in N])
+        z_sub_total = sum([self.subproblems[n].data.obj_vals[-1] for n in N])
 
         # The best upper bound is the best incumbent with phi replaced by the sub problems' actual cost
         self.data.ub = z_master - phi_val + z_sub_total
@@ -396,8 +391,6 @@ class Master_problem:
 
         self.data.upper_bounds.append(self.data.ub)
         self.data.lower_bounds.append(self.data.lb)
-        #self.data.mipgap.append(self.m.params.IntFeasTol)
-        #self.data.solvetime.append(self.m.Runtime)
 
         return
 
@@ -406,17 +399,17 @@ class Master_problem:
             for n in self.data.N:
                 self.data.phis[n].append(self.variables.phi[n].x)
                 for v in self.data.V:
-                    self.data.vessels[(v,n)].append(int(self.variables.vessels[(v,n)].x))
+                    self.data.vessels[(v,n)].append(self.variables.vessels[(v,n)].x)
                 for i in self.data.P:
-                    self.data.ports[(i,n)].append(int(self.variables.ports[(i,n)].x))
+                    self.data.ports[(i,n)].append(self.variables.ports[(i,n)].x)
         else: 
             for n_solved in self.data.N_s[model.data.S[0]]:
                 N = get_same_year_nodes(n_solved, self.data.N, self.data.YEAR_OF_NODE)
                 for n in N:
                     for v in self.data.V:
-                        self.data.vessels[(v,n)].append(int(model.variables.vessels[(v,n_solved)].x))
+                        self.data.vessels[(v,n)].append(model.variables.vessels[(v,n_solved)].x)
                     for i in self.data.P:
-                        self.data.ports[(i,n)].append(int(model.variables.ports[(i,n_solved)].x))
+                        self.data.ports[(i,n)].append(model.variables.ports[(i,n_solved)].x)
 
         return
 

@@ -14,20 +14,28 @@ class expando(object):
 
 # Subproblem
 class Subproblem:
-    def __init__(self, mp, NODE):
+    def __init__(self, NODE, mp = None, data = None, PARALLEL = False):
         self.NODE = NODE
-        self.mp = mp
+        if PARALLEL:
+            self.mp = expando()
+            self.mp.data = data
+        else:
+            self.mp = mp
+        self.PARALLEL = PARALLEL
         self.data = expando()
         self.variables = expando()
         self.constraints = expando()
         self.results = expando()
         self._load_data()
         self._build_model()
-        #self.update_fixed_vars()
 
     def solve(self):
         self.m.optimize()
-        return
+        self._save_vars()
+        if self.PARALLEL == True:
+            return self.data
+        else: 
+            return
     
     def _load_data(self):
         #make the selection of scenarios and years for the given subproblem
@@ -118,8 +126,9 @@ class Subproblem:
         SP_truck_opex = (52/NUM_WEEKS) * gp.quicksum(PROB_SCENARIO.iloc[0,s] * TRUCK_COST[i,k,t,s]*(delivery_truck[(i,k,t,w,s)]+pickup_truck[(i,k,t,w,s)]) for k in K for i in P_k[k] 
         for t in T for w in W for s in S)
 
-        self.data.vessel_opex = SP_vessel_opex
-        self.data.truck_opex = SP_truck_opex
+        self.data.sens_vessels = []
+        self.data.sens_ports = []
+        self.data.obj_vals = []
 
         m.setObjective(SP_vessel_opex + SP_truck_opex, gp.GRB.MINIMIZE)
 
@@ -221,15 +230,35 @@ class Subproblem:
 
         return
 
-    def update_fixed_vars(self, model=None):
+    def _save_vars(self):
+        V = self.mp.data.V
+        P = self.mp.data.P
+        self.data.obj_vals.append(self.m.ObjVal)
+        self.data.sens_vessels.append([self.constraints.fix_vessels[(v,self.NODE)].pi for v in V])
+        self.data.sens_ports.append([self.constraints.fix_ports[(i,self.NODE)].pi for i in P])
+
+
+    def update_fixed_vars(self):
+
+        for n in self.mp.data.N:
+            for i in self.mp.data.P:
+                port_val = self.mp.data.ports[(i,n)][-1]
+                self.constraints.fix_ports[(i,n)].rhs = port_val
+            for v in self.mp.data.V:
+                vessel_val = self.mp.data.vessels[(v,n)][-1]
+                self.constraints.fix_vessels[(v,n)].rhs = vessel_val
+                    
+        return
+
+    def update_fixed_vars_callback(self, model=None):
 
         if model is None:
             for n in self.mp.data.N:
                 for i in self.mp.data.P:
-                    port_val = self.mp.variables.ports[(i,n)].x
+                    port_val = self.mp.m.cbGetSolution(self.mp.variables.ports[(i,n)])
                     self.constraints.fix_ports[(i,n)].rhs = port_val
                 for v in self.mp.data.V:
-                    vessel_val = self.mp.variables.vessels[(v,n)].x
+                    vessel_val = self.mp.m.cbGetSolution(self.mp.variables.vessels[(v,n)])
                     self.constraints.fix_vessels[(v,n)].rhs = vessel_val
 
         else: # Only used for the hot start iteration
