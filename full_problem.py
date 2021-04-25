@@ -37,6 +37,7 @@ class Full_problem:
     ###
     def _build_model(self):
         self.m = gp.Model()
+        #self.m.setParam('TimeLimit', 120)
         self.m.setParam('OutputFlag', 0) #Suppress default output
         self._build_variables()
         self._build_objective()

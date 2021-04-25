@@ -6,15 +6,16 @@ import pandas as pd
 import numpy as np
 from itertools import product
 
+from time import time
 # Import other classes
 from subproblem import Subproblem
 from full_problem import Full_problem
 
 # Import helper functions
-from special_set_generators import beta_set_generator, arc_set_generator, port_route_set_generator, route_vessel_set_generator, route_vessel_port_set_generator, port_customer_set_generator, scenario_node_set_generator, year_node_set_generator
+from special_set_generators import beta_set_generator, arc_set_generator, port_route_set_generator, route_vessel_set_generator, route_vessel_port_set_generator, port_customer_set_generator, scenario_node_set_generator, year_node_set_generator, parent_node_set_generator
 from cost_generators import vessel_investment, port_investment, sailing_cost, truck_cost, port_handling_cost
 from short_term_uncertainty import draw_weekly_demand
-from misc_functions import get_same_year_nodes
+from misc_functions import get_same_year_nodes, nodes_with_new_investments
 from feasibility_preprocessing import preprocess_feasibility
 from route_preprocessing import preprocess_routes
 
@@ -24,7 +25,7 @@ class expando(object):
 
 # Master problem
 class Master_problem:
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 1, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.001, MAX_ITERS=300, warm_start = True):
+    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 3, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=10, warm_start = True):
         self.INSTANCE = INSTANCE
         self.MAX_ITERS = MAX_ITERS
         self.iter = 0
@@ -92,11 +93,12 @@ class Master_problem:
         self.data.P_r = port_route_set_generator(ROUTES, P, R)
         self.data.W = np.arange(NUM_WEEKS)
         self.data.N_s = [NODES_IN_SCENARIO.iloc[:,c].to_numpy() for c in range(NODES_IN_SCENARIO.shape[1])] #List of list with all the nodes for a given scenario
+        self.data.S_n = scenario_node_set_generator(NODES_IN_SCENARIO, N, S)
+        self.data.NP_n = parent_node_set_generator(NODES_IN_SCENARIO, N)
         self.data.R_vi = route_vessel_port_set_generator(ROUTES, R_v, V, P)
         self.data.P_k = port_customer_set_generator(PORT_CUSTOMER_FEASIBILITY, P, K)
         self.data.N_s = [NODES_IN_SCENARIO.iloc[:,c].to_numpy() for c in range(NODES_IN_SCENARIO.shape[1])] #List of list with all the nodes for a given scenario
         self.data.K_i = [[int(x) for x in PORT_CUSTOMER_FEASIBILITY.iloc[:,i].dropna().to_numpy()] for i in P] #List of list with all serviceable customer k for a port i
-        self.data.S_n = scenario_node_set_generator(NODES_IN_SCENARIO, N, S)
         self.data.T_n = year_node_set_generator(NODES_IN_SCENARIO, YEAR_OF_NODE, NUM_YEARS, N)
         #Generate cost data
         self.data.VESSEL_INVESTMENT = vessel_investment(VESSELS,YEAR_OF_NODE, V, N, DISCOUNT_FACTOR)
@@ -114,7 +116,7 @@ class Master_problem:
         self.data.lambdas = {}
         self.data.ub = gp.GRB.INFINITY
         self.data.lb = -gp.GRB.INFINITY
-        self.data.phis = []
+        self.data.phis = [[] for n in N]
         self.data.vessels = {}
         for v in V:
             for n in N:
@@ -199,7 +201,7 @@ class Master_problem:
 
         self.variables.vessels = m.addVars(product(V,N), vtype=GRB.INTEGER, name="Vessel investment")
         self.variables.ports = m.addVars(product(P,N), vtype=GRB.BINARY, name="Port investment")
-        self.variables.phi = m.addVar(vtype = GRB.CONTINUOUS, name = "Phi")
+        self.variables.phi = m.addVars(N, vtype = GRB.CONTINUOUS, name = "Phi")
 
         m.update()
 
@@ -209,6 +211,8 @@ class Master_problem:
         #Only open port in one time, to hinder "double" opening for dual values in several nodes
         self.constraints.max_ports_in_scenario = self.m.addConstrs(gp.quicksum(self.variables.ports[(i,n)] for n in self.data.N_s[s]) <= 1 for i in self.data.P for s in self.data.S)
         self.constraints.max_number_of_vessels = self.m.addConstrs(gp.quicksum(self.variables.vessels[(v,n)] for n in self.data.N_s[s]) <= 10 for v in self.data.V for s in self.data.S)
+        self.constraints.limit_vessel_decrease = self.m.addConstrs(self.variables.vessels[(v,n)] <= 0 for v in self.data.V for n in self.data.N)
+        self.constraints.limit_vessel_increase = self.m.addConstrs(-self.variables.vessels[(v,n)] <= 0 for v in self.data.V for n in self.data.N)
         return
 
     def _build_objective(self):
@@ -216,6 +220,7 @@ class Master_problem:
         #Fetch sets
         V = self.data.V
         P = self.data.P
+        N = self.data.N
         N_s = self.data.N_s
         S = self.data.S
 
@@ -230,7 +235,7 @@ class Master_problem:
         #Make the objective function for the master problem
         MP_obj_func = gp.quicksum(PROB_SCENARIO.iloc[0,s]*
         gp.quicksum(gp.quicksum(VESSEL_INVESTMENT[v,n]*vessels[(v, n)] for v in V) + gp.quicksum(PORT_INVESTMENT[i,n]*ports[(i, n)] for i in P) 
-        for n in N_s[s]) for s in S) + self.variables.phi
+        for n in N_s[s]) for s in S) + gp.quicksum(self.variables.phi[n] for n in N)
 
         self.m.setObjective(MP_obj_func, gp.GRB.MINIMIZE)
 
@@ -242,64 +247,56 @@ class Master_problem:
 
         # Only build subproblems if they don't exist or a rebuild is forced.
         if not hasattr(self, 'subproblems'):# or force_submodel_rebuild:
-            self.subproblems = {n: Subproblem(self, NODE=n) for n in self.data.N}
-        # Update fixed variables for subproblems and rebuild.
+            self.subproblems = {n: Subproblem(NODE=n, mp=self) for n in self.data.N}
+        
+        #Warm start algorithm with solution from deteministic problem
         if self.warm_start:
             self._warm_start()
-            [sp.update_fixed_vars(self.fp) for sp in self.subproblems.values()]
-            [sp.solve() for sp in self.subproblems.values()]
-            self._add_cut()
-            self._save_vars(self.fp)
-            self.iter += 1
-            self.warm_start = False
 
-        def callback(m, where): #Define within the solve function to have access to the mp
-            if where == GRB.Callback.MIPSOL:
-                # 0. Update bounds
-                ub = mp.data.upper_bounds[-1]
-                lb = mp.data.lower_bounds[-1]
-                ub_min = min(mp.data.upper_bounds)
+        while True: 
+            mp.iter += 1
+            # 1. Solve master problem and save variables
+            t0 = time()
+            m.optimize()
+            mp._save_vars()
+            t1 = time()
+            print(f'>>>Time spent solving MP: {round(t1-t0,3)}')
+
+            # 2. Solve subproblems
+            N_changed = nodes_with_new_investments(mp.data.vessels, mp.data.ports, mp.data.V, mp.data.P, mp.data.N, mp.data.NP_n)
+            t0 = time()
+            for n in N_changed: #OLD replace N_changed with mp.data.N 
+                sp = mp.subproblems[n]
+                sp.update_fixed_vars()
+                sp.solve()
+            t1 = time()
+            print(f'>>Time spent solving SP: {round(t1-t0,3)}')
+
+             # 3. Update the bounds on the mp
+            mp._update_bounds()
+
+            # 4. Check termination criterias: Relative gap, Absolute gap & Number of iterations 
+            try: 
+                lb = mp.data.lower_bounds[-1] #lb increasing in each iteration, lb max is the last element
+                ub = min(mp.data.upper_bounds) #ub is the lowest ub found up until the current iteration.
                 gap = (ub - lb)  / lb * 100
-                print(f'>>> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {gap} %')
-                # 1. Save the variables of the current mp-solution
-                mp._save_vars()
-                # 2. Check termination criterias: Relative gap, Absolute gap & Number of iterations 
-                    # 2.1 Relative gap < 1%
-                if ub_min <= lb + 0.01*lb:
-                    print(f'**OPTIMAL SOLUTION FOUND**')
-                    m.terminate()
-                    # 2.2 Absolute gap   
-                elif ub_min - lb <= 1e6:
-                    print(f'**ABSOLUTE GAP**')
-                    print(mp.iter)
-                    m.terminate()
-                    # 2.3 Number of iterations
-                elif mp.iter > mp.MAX_ITERS:
-                    print(f'**MAX ITERATIONS REACHED {mp.MAX_ITERS}**')
-                    m.terminate()
+                print(f'> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {round(gap,2)} %')
+            except:
+                print(f'> Iteration {mp.iter}. Bounds not applicable')
 
-                # 2. Solve subproblems
-                [sp.update_fixed_vars() for sp in mp.subproblems.values()]
-                [sp.solve() for sp in mp.subproblems.values()]
+                # 4.1 Relative gap < 1%
+            if ub <= lb + 0.001*lb:
+                print(f'**OPTIMAL SOLUTION FOUND: {mp.data.upper_bounds[-1]}**')
+                break
+                # 4.2 Number of iterations
+            elif mp.iter > mp.MAX_ITERS:
+                print(f'**MAX ITERATIONS REACHED {mp.MAX_ITERS}**')
+                break
 
-                # 3. Add a cut to the mp
-                mp._add_cut()
-
-                # 4. Update the bounds on the mp
-                mp._update_bounds()
-
-                # 5. Updater the number of iterations
-                mp.iter += 1
-
-            return
-
-        m.optimize(callback)
-        """NEXT STEPS - to ensure that Bender's algorithm don't stop when MP finde optimal solution
-        if bounds not met: 
-            resolve subproblems 
-            add new cut
-            m.optize(callback)
-        """
+            # 5. Add a cut to the mp and update the allowed vessel changes
+            #mp._add_unicut()
+            mp._add_multicut(N_changed)
+            mp._update_vessel_changes()
 
         return
     
@@ -307,16 +304,26 @@ class Master_problem:
 
         self.fp = Full_problem(self, SCENARIOS = [4])
         self.fp.solve()
+        self._save_vars(self.fp)
+
+        for n in self.data.N:
+            self.subproblems[n].update_fixed_vars() 
+            self.subproblems[n].solve()
+        #self._add_unicut()
+        self._add_multicut(self.data.N)
+        self._update_vessel_changes(self.fp)
+        self.warm_start = False
 
         return
             
-    def _add_cut(self):
+    def _add_unicut(self):
         m = self.m
 
         #Imports sets and other necessary data
         V = self.data.V
         P = self.data.P
         N = self.data.N
+        NP_n = self.data.NP_n
 
         # Define dictionaries for sensitivities and objective values of the subproblems
         z_sub = dict.fromkeys(N)
@@ -332,16 +339,34 @@ class Master_problem:
                 sens_ports.iloc[i,n] = self.subproblems[n].constraints.fix_ports[(i,n)].pi
         
         # Generate cut
-        lhs = self.variables.phi
-        rhs = gp.quicksum((z_sub[n]+
-        gp.quicksum(sens_vessels.iloc[v,n] * (self.variables.vessels[(v,n)]-self.subproblems[n].variables.vessels_free[(v,n)].x) for v in V) +
-        gp.quicksum(sens_ports.iloc[i,n] * (self.variables.ports[(i,n)]-self.subproblems[n].variables.ports_free[(i,n)].x) for i in P[1:]))
+        lhs = self.variables.phi[0]
+        rhs = gp.quicksum(z_sub[n]+
+        gp.quicksum(sens_vessels.iloc[v,n] * gp.quicksum(self.variables.vessels[(v,m)]-self.subproblems[m].variables.vessels_free[(v,m)].x for m in NP_n[n]) for v in V) +
+        gp.quicksum(sens_ports.iloc[i,n] * (self.variables.ports[(i,n)]-self.subproblems[n].variables.ports_free[(i,n)].x) for i in P[1:])
         for n in N)
 
-        if not self.warm_start: #If not being in the HOT START run, add the constraints as a lazy constraint
-            m.cbLazy(lhs >= rhs)
-        else:
-            self.constraints.warm_start_cut = m.addConstr(lhs >= rhs)
+        m.addConstr(lhs >= rhs)
+
+        return
+
+    def _add_multicut(self, N):
+        m = self.m
+
+        #Imports sets and other necessary data
+        V = self.data.V
+        P = self.data.P
+        NP_n = self.data.NP_n
+
+        for n in N: 
+            lhs = self.variables.phi[n]
+            z_sub = self.subproblems[n].data.obj_vals[-1]
+            sens_vessels = self.subproblems[n].data.sens_vessels[-1]
+            sens_ports = self.subproblems[n].data.sens_ports[-1]
+            rhs = (z_sub + 
+            gp.quicksum(sens_vessels[v] * gp.quicksum(self.variables.vessels[(v,m)]-self.data.vessels[(v,m)][-1] for m in NP_n[n]) for v in V) + 
+            gp.quicksum(sens_ports[i] * gp.quicksum(self.variables.ports[(i,m)]-self.data.ports[(i,m)][-1] for m in NP_n[n]) for i in P[1:]))
+            m.addConstr(lhs >= rhs)
+
         return
 
     ###
@@ -353,43 +378,30 @@ class Master_problem:
         N = self.data.N
 
         #Fetch the current value of the master problem and the artificial variable phi at the current MIPSOL in the callback
-        z_master = m.cbGet(GRB.Callback.MIPSOL_OBJBST)
-        phi_val = m.cbGetSolution(self.variables.phi)
-
-        z_sub_total = 0
-
-        for n in N:
-            #Calculate probability for being in a node by summing up scenarios where the node is present
-            # Get the probability adjusted objective values of the subproblems 
-            z_sub = self.subproblems[n].m.objVal
-            z_sub_total += z_sub
+        z_master = m.ObjVal
+        phi_val = sum([self.variables.phi[n].x for n in N])
+        z_sub_total = sum([self.subproblems[n].data.obj_vals[-1] for n in N])
 
         # The best upper bound is the best incumbent with phi replaced by the sub problems' actual cost
         self.data.ub = z_master - phi_val + z_sub_total
 
         # The best lower bound is the current bestbound,
         # This will equal z_master at optimality
-        try:
-            self.data.lb = m.cbGet(GRB.Callback.MIPSOL_OBJBND)
-        except gp.GurobiError:
-            self.data.lb = z_master
+        self.data.lb = z_master
 
         self.data.upper_bounds.append(self.data.ub)
         self.data.lower_bounds.append(self.data.lb)
-        #self.data.mipgap.append(self.m.params.IntFeasTol)
-        #self.data.solvetime.append(self.m.Runtime)
 
         return
 
     def _save_vars(self, model = None):
         if model == None:
-            self.data.phis.append(self.m.cbGetSolution(self.variables.phi))
-
             for n in self.data.N:
+                self.data.phis[n].append(self.variables.phi[n].x)
                 for v in self.data.V:
-                    self.data.vessels[(v,n)].append(self.m.cbGetSolution(self.variables.vessels[(v,n)]))
+                    self.data.vessels[(v,n)].append(self.variables.vessels[(v,n)].x)
                 for i in self.data.P:
-                    self.data.ports[(i,n)].append(self.m.cbGetSolution(self.variables.ports[(i,n)]))
+                    self.data.ports[(i,n)].append(self.variables.ports[(i,n)].x)
         else: 
             for n_solved in self.data.N_s[model.data.S[0]]:
                 N = get_same_year_nodes(n_solved, self.data.N, self.data.YEAR_OF_NODE)
@@ -398,5 +410,23 @@ class Master_problem:
                         self.data.vessels[(v,n)].append(model.variables.vessels[(v,n_solved)].x)
                     for i in self.data.P:
                         self.data.ports[(i,n)].append(model.variables.ports[(i,n_solved)].x)
+
+        return
+
+    def _update_vessel_changes(self, model = None):
+        if model == None:
+            for n in self.data.N:
+                for v in self.data.V:
+                    vessel_val = self.variables.vessels[(v,n)].x
+                    self.constraints.limit_vessel_decrease[(v,n)].rhs = vessel_val + 1
+                    self.constraints.limit_vessel_increase[(v,n)].rhs = -vessel_val + 1
+        else: 
+            for n_solved in self.data.N_s[model.data.S[0]]:
+                N = get_same_year_nodes(n_solved, self.data.N, self.data.YEAR_OF_NODE)
+                for n in N:
+                    for v in self.data.V:
+                        vessel_val = model.variables.vessels[(v,n_solved)].x
+                        self.constraints.limit_vessel_decrease[(v,n)].rhs = vessel_val + 1
+                        self.constraints.limit_vessel_increase[(v,n)].rhs = -vessel_val + 1
 
         return
