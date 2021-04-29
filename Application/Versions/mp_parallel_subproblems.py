@@ -1,7 +1,9 @@
 import gurobipy as gp
 from gurobipy import GRB
+from pandas.core.arrays.integer import Int8Dtype
 import ray
 from time import time
+import numpy as np
 
 from master_problem import Master_problem
 from full_problem import Full_problem
@@ -11,7 +13,7 @@ from misc_functions import nodes_with_new_investments
 
 
 class MP_parallelSPs(Master_problem):
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 3, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=10, warm_start = True) -> None:
+    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 1, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=100, warm_start = True) -> None:
         super().__init__(INSTANCE, 
         NUM_WEEKS=NUM_WEEKS, 
         NUM_SCENARIOS=NUM_SCENARIOS, 
@@ -29,8 +31,7 @@ class MP_parallelSPs(Master_problem):
         mp = self
         m = self.m
         self.sp_data = [[] for n in self.data.N]
-        #mp_data_id = ray.put(mp.data)
-        #mp_variables_id = ray.put(mp.variables)
+        mp2sp_iterations = np.zeros([self.MAX_ITERS,self.data.NUM_NODES], dtype=int)
 
         #Build the subproblems as remote actors in ray, and store the references in the master problem
         self.sp_refs = {n: Subproblem_parallel.remote(n, mp.data) for n in self.data.N}
@@ -46,12 +47,14 @@ class MP_parallelSPs(Master_problem):
             m.optimize()
             mp._save_vars()
             t1 = time()
-            print(f'>>>Time spent solving MP: {round(t1-t0,3)}')
+            self.data.mp_solve_time.append(t1-t0)
+            print(f'\n>>>ITERATION {mp.iter}')
+            print(f'Time spent solving MP: {round(t1-t0,3)}')
 
             # 2. Solve subproblems
-            N_changed = nodes_with_new_investments(mp.data.vessels, mp.data.ports, mp.data.V, mp.data.P, mp.data.N, mp.data.NP_n)
-
             t0 = time()
+            N_changed, mp2sp_iterations = nodes_with_new_investments(mp2sp_iterations, mp.iter, mp.data.vessels, mp.data.ports, mp.data.V, mp.data.P, mp.data.N, mp.data.NP_n)
+            N_changed = mp.data.N
             [self.sp_refs[n].update_fixed_vars.remote(mp.data) for n in N_changed]
 
             updated_sps = ray.get([self.sp_refs[n].solve.remote() for n in N_changed])
@@ -59,23 +62,25 @@ class MP_parallelSPs(Master_problem):
                 self.sp_data[N_changed[idx]] = updated_sp
 
             t1 = time()
-            print(f'>>Time spent solving SP: {round(t1-t0,3)}')
+            self.data.sp_solve_time.append(t1-t0)
+            print(f'Time spent solving SP: {round(t1-t0,3)}')
+            #print(f'Obj. vals. from similar SP: {[int(self.sp_data[n].obj_vals[mp2sp_iterations[mp.iter,n]]*1e-6) for n in self.data.N]}')
 
                 # 3. Update the bounds on the mp
-            mp._update_bounds(self.sp_data)
+            mp._update_bounds(self.sp_data, mp2sp_iterations[mp.iter,:])
 
             # 4. Check termination criterias: Relative gap, Absolute gap & Number of iterations 
             try: 
                 lb = mp.data.lower_bounds[-1] #lb increasing in each iteration, lb max is the last element
                 ub = min(mp.data.upper_bounds) #ub is the lowest ub found up until the current iteration.
                 gap = (ub - lb)  / lb * 100
-                print(f'> Iteration {mp.iter}. UB: {int(ub/1e6)} | LB: {int(lb/1e6)} | Gap: {round(gap,2)} %')
+                print(f'BOUNDS: UB = {int(ub/1e6)} | LB = {int(lb/1e6)} | Gap = {round(gap,2)} %')
             except:
-                print(f'> Iteration {mp.iter}. Bounds not applicable')
+                print(f'\tBounds not applicable')
 
                 # 4.1 Relative gap < 1%
-            if ub <= lb + 0.001*lb:
-                print(f'**OPTIMAL SOLUTION FOUND: {mp.data.upper_bounds[-1]}**')
+            if ub <= lb + 0.0001*lb:
+                print(f'**OPTIMAL SOLUTION FOUND: {int(ub*1e-6)}**')
                 break
                 # 4.2 Absolute gap   
             elif ub - lb <= 1e6:
@@ -92,7 +97,13 @@ class MP_parallelSPs(Master_problem):
             mp._add_multicut(N_changed, self.sp_data)
             mp._update_vessel_changes()
 
-        ray.shutdown()   
+        ray.shutdown()
+        self.data.sp_zVals = np.zeros([mp.iter, self.data.NUM_NODES])
+        for i in range(mp.iter):
+            for n in self.data.N:
+                self.data.sp_zVals[i,n] = int(self.sp_data[n].obj_vals[mp2sp_iterations[i,n]]*1e-6)
+
+        print(mp2sp_iterations)   
         return
 
     def _warm_start(self):
@@ -130,24 +141,23 @@ class MP_parallelSPs(Master_problem):
 
         return
 
-    def _update_bounds(self, sp_data):
+    def _update_bounds(self, sp_data, N_4bounds):
         m = self.m
-
         N = self.data.N
 
         #Fetch the current value of the master problem and the artificial variable phi at the current MIPSOL in the callback
         z_master = m.ObjVal
-        phi_val = sum([self.variables.phi[n].x for n in N])
-        z_sub_total = sum([sp_data[n].obj_vals[-1] for n in N])
+        phi_val = sum([self.variables.phi[n].x for n in N]) # Get the latest phi as this is solved by the MP with new cuts
+        z_sub_total = sum([sp_data[n].obj_vals[N_4bounds[n]] for n in N]) # Get actual cost of second stage as unchanged SPs are not resolved. N_4bounds =-1 if new iteration of SP
 
         # The best upper bound is the best incumbent with phi replaced by the sub problems' actual cost
-        self.data.ub = z_master - phi_val + z_sub_total
+        ub = z_master - phi_val + z_sub_total
 
         # The best lower bound is the current bestbound,
         # This will equal z_master at optimality
-        self.data.lb = z_master
+        lb = z_master
 
-        self.data.upper_bounds.append(self.data.ub)
-        self.data.lower_bounds.append(self.data.lb)
+        self.data.upper_bounds.append(ub)
+        self.data.lower_bounds.append(lb)
 
         return
