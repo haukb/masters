@@ -25,7 +25,7 @@ class expando(object):
 
 # Master problem
 class Master_problem:
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 3, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=10, warm_start = True):
+    def __init__(self, INSTANCE, NUM_WEEKS, NUM_SCENARIOS, NUM_VESSELS, MAX_PORT_VISITS, DRAW, WEEKLY_ROUTING, DISCOUNT_FACTOR, BENDERS_GAP, MAX_ITERS, warm_start):
         self.INSTANCE = INSTANCE
         self.MAX_ITERS = MAX_ITERS
         self.iter = 0
@@ -110,21 +110,22 @@ class Master_problem:
         self._make_demand_data()
 
         #GENERAL DATA
-        self.data.cutlist = []
+        self.data.mp_solve_time = []
+        self.data.sp_solve_time = []
         self.data.upper_bounds = [GRB.INFINITY]
         self.data.lower_bounds = [-GRB.INFINITY]
-        self.data.lambdas = {}
-        self.data.ub = gp.GRB.INFINITY
-        self.data.lb = -gp.GRB.INFINITY
         self.data.phis = [[] for n in N]
         self.data.vessels = {}
-        for v in V:
-            for n in N:
-                self.data.vessels[(v,n)] = []
         self.data.ports = {}
-        for i in P:
-            for n in N:
+        for n in N:
+            for v in V:
+                self.data.vessels[(v,n)] = []
+            for i in P:
                 self.data.ports[(i,n)] = []
+                
+
+
+    
 
         return
 
@@ -372,25 +373,31 @@ class Master_problem:
     ###
     # 
     ####
-    def _update_bounds(self):
+    def _update_bounds(self, N_4bounds=None):
         m = self.m
-
         N = self.data.N
+        
+        try:
+            if N_4bounds == None:
+                N_4bounds = [-1 for n in N]
+        except:
+            pass
 
-        #Fetch the current value of the master problem and the artificial variable phi at the current MIPSOL in the callback
+        #Fetch the current value of the master problem and the artificial variable phi
         z_master = m.ObjVal
         phi_val = sum([self.variables.phi[n].x for n in N])
-        z_sub_total = sum([self.subproblems[n].data.obj_vals[-1] for n in N])
+        
+        z_sub_total = sum([self.subproblems[n].data.obj_vals[N_4bounds[n]] for n in N])
 
         # The best upper bound is the best incumbent with phi replaced by the sub problems' actual cost
-        self.data.ub = z_master - phi_val + z_sub_total
+        ub = z_master - phi_val + z_sub_total
 
         # The best lower bound is the current bestbound,
         # This will equal z_master at optimality
-        self.data.lb = z_master
+        lb = z_master
 
-        self.data.upper_bounds.append(self.data.ub)
-        self.data.lower_bounds.append(self.data.lb)
+        self.data.upper_bounds.append(ub)
+        self.data.lower_bounds.append(lb)
 
         return
 

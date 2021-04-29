@@ -67,12 +67,6 @@ class MP_BBC(Master_problem):
             return
 
         self.m.optimize(callback)
-        """NEXT STEPS - to ensure that Bender's algorithm don't stop when MP finde optimal solution
-        if bounds not met: 
-            resolve subproblems 
-            add new cut
-            m.optize(callback)
-        """
 
         return
     

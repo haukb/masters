@@ -1,0 +1,2 @@
+Algorithm name,INSTANCE,NUM_WEEKS (Default = 1),NUM_SCENARIOS (Default = 27),NUM_VESSELS (Default = 1),MAX_PORT_VISITS  (Default = 1),DRAW (Default = False),WEEKLY_ROUTING (Default = False),DISCOUNT_FACTOR (Default = 1),BENDERS_GAP (Default =0.01),MAX_ITERS (Default =100),warm_start (Default = True)
+MP_parallelSPs,Small,,,3,1,,,,,,
