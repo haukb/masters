@@ -142,3 +142,15 @@ __pycache__
 
 #.python-version
 .python-version
+
+#/Results
+/Results
+
+#/Execution
+/Execution
+
+#/Data
+/Data
+
+#master_problem.py
+master_problem.py
