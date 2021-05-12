@@ -3,22 +3,10 @@ from subproblems.subproblem import Subproblem
 from utils.misc_functions import nodes_with_new_investments
 
 from time import time
-import numpy as np
 
 class MP_2opt(Master_problem):
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 2, MAX_PORT_VISITS = 2, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=100, TIME_LIMIT=7600, warm_start = True) -> None:
-        super().__init__(INSTANCE, 
-        NUM_WEEKS=NUM_WEEKS, 
-        NUM_SCENARIOS=NUM_SCENARIOS, 
-        NUM_VESSELS=NUM_VESSELS, 
-        MAX_PORT_VISITS=MAX_PORT_VISITS, 
-        DRAW=DRAW, 
-        WEEKLY_ROUTING=WEEKLY_ROUTING, 
-        DISCOUNT_FACTOR=DISCOUNT_FACTOR, 
-        BENDERS_GAP=BENDERS_GAP, 
-        MAX_ITERS=MAX_ITERS,
-        TIME_LIMIT=TIME_LIMIT, 
-        warm_start=warm_start)
+    def __init__(self, kwargs) -> None:
+        super().__init__(**kwargs)
     
     def solve(self):
         run_start = time()
@@ -66,8 +54,7 @@ class MP_2opt(Master_problem):
                 break
 
             # 5. Add a cut to the mp and update the allowed vessel changes
-            #mp._add_unicut()
-            self._add_multicut(self.data.N)
-            #mp._update_vessel_changes()
+            self._add_cut(self.data.N)
+            #self._update_vessel_changes()
 
         return

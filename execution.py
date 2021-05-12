@@ -64,11 +64,13 @@ def run_pipeline():
         parameters = row[1:]
         kwargs = make_kwargs(parameters,arg_names)
         if algo == 'MP_2opt':
-            mp = MP_2opt(**kwargs)
+            mp = MP_2opt(kwargs)
         elif algo == 'MP_parallelSPs':
-            mp = MP_parallelSPs(**kwargs)
+            mp = MP_parallelSPs(kwargs)
         elif algo == 'MP_BBC':
-            mp = MP_BBC
+            mp = MP_BBC(kwargs)
+        elif algo == 'MP_unicut':
+            mp = MP_BBC(kwargs) # NB FIX
         else: 
             raise ValueError('Invalid algorithm name')
         

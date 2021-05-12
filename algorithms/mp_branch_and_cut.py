@@ -8,34 +8,23 @@ import gurobipy as gp
 from gurobipy import GRB
 
 class MP_BBC(Master_problem):
-    def __init__(self, INSTANCE, NUM_WEEKS = 1, NUM_SCENARIOS = 27, NUM_VESSELS = 1, MAX_PORT_VISITS = 3, DRAW = False, WEEKLY_ROUTING = False, DISCOUNT_FACTOR = 1, BENDERS_GAP=0.01, MAX_ITERS=10, warm_start = True) -> None:
-        super().__init__(INSTANCE, 
-        NUM_WEEKS=NUM_WEEKS, 
-        NUM_SCENARIOS=NUM_SCENARIOS, 
-        NUM_VESSELS=NUM_VESSELS, 
-        MAX_PORT_VISITS=MAX_PORT_VISITS, 
-        DRAW=DRAW, 
-        WEEKLY_ROUTING=WEEKLY_ROUTING, 
-        DISCOUNT_FACTOR=DISCOUNT_FACTOR, 
-        BENDERS_GAP=BENDERS_GAP, 
-        MAX_ITERS=MAX_ITERS, 
-        warm_start=warm_start)
+    def __init__(self, kwargs) -> None:
+        super().__init__(**kwargs)
 
     def _build_constraints(self):
         #Only open port in one time, to hinder "double" opening for dual values in several nodes
         self.constraints.max_ports_in_scenario = self.m.addConstrs(gp.quicksum(self.variables.ports[(i,n)] for n in self.data.N_s[s]) <= 1 for i in self.data.P for s in self.data.S)
-        self.constraints.max_number_of_vessels = self.m.addConstrs(gp.quicksum(self.variables.vessels[(v,n)] for n in self.data.N_s[s]) <= 10 for v in self.data.V for s in self.data.S)
         return 
 
     def solve(self) -> None:
 
         # Only build subproblems if they don't exist or a rebuild is forced.
         if not hasattr(self, 'subproblems'):# or force_submodel_rebuild:
-            self.subproblems = {n: Subproblem(self, NODE=n) for n in self.data.N}
+            self.subproblems = {n: Subproblem(NODE=n, mp=self) for n in self.data.N}
 
         # Update fixed variables for subproblems and rebuild.
-        #if self.warm_start:
-        #    self._warm_start()
+        if self.warm_start:
+            self._warm_start()
 
         def callback(m, where): #Define within the solve function to have access to the mp
             # 1. Find the next IP-solution to the MP
@@ -62,14 +51,14 @@ class MP_BBC(Master_problem):
                     
                 # 5. if phi < second stage costs add new cut
                 if ub >= lb + 0.001*lb:
-                    self._add_multicut(self.data.N)
+                    self._add_lazy_cut(self.data.N)
             return
 
         self.m.optimize(callback)
 
         return
     
-    def _add_multicut(self, N):
+    def _add_lazy_cut(self, N):
         m = self.m
 
         #Imports sets and other necessary data

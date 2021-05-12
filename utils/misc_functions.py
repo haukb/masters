@@ -12,7 +12,6 @@ def get_same_year_nodes(node, N, YEAR_OF_NODE):
 
 def nodes_with_new_investments(mp2sp_iterations, mp_iter, vessels, ports, V, P, N, NP_n):
     N_changed = list(N.copy())
-    MP_iterations = len(ports[(0,0)]) - 1 #Without Warm-start iteration
     for n in N:
         cum_vessels_latest = np.array([sum([vessels[(v,m)][-1] for m in NP_n[n]]) for v in V])
         cum_ports_latest = np.array([sum([ports[(i,m)][-1] for m in NP_n[n]]) for i in P])
@@ -23,7 +22,7 @@ def nodes_with_new_investments(mp2sp_iterations, mp_iter, vessels, ports, V, P, 
             cum_ports = np.array([sum([ports[(i,m)][j] for m in NP_n[n]]) for i in P])
             if (cum_vessels_latest==cum_vessels).all() and (cum_ports_latest==cum_ports).all():
                 N_changed.remove(n)
-                mp2sp_iterations[MP_iterations,n] = mp2sp_iterations[j,n]
+                mp2sp_iterations[mp_iter,n] = mp2sp_iterations[j,n]
                 break
 
     return N_changed, mp2sp_iterations

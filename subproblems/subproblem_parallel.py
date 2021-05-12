@@ -4,8 +4,9 @@ from subproblems.subproblem import Subproblem
 # Subproblem
 @ray.remote
 class Subproblem_parallel(Subproblem):
-    def __init__(self, NODE, data):
+    def __init__(self, NODE, data) -> None:
         super().__init__(NODE = NODE, data=data, PARALLEL=True)
+        return
     
     def update_fixed_vars(self, updated_data):
 

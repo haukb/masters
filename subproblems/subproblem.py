@@ -5,7 +5,7 @@ from gurobipy import GRB
 from itertools import product
 
 # Import helper functions
-from utils.variables_generators import make_delivery_vessel_variables, make_delivery_truck_variables, make_routes_vessels_variables, make_weekly_routes_vessels_variables
+from utils.variables_generators import make_delivery_vessel_variables, make_delivery_truck_variables, make_routes_vessels_variables
 from utils.misc_functions import get_same_year_nodes
 
 # Class which can have attributes set.
@@ -41,6 +41,11 @@ class Subproblem:
         #make the selection of scenarios and years for the given subproblem
         self.data.S_star = self.mp.data.S_n[self.NODE] 
         self.data.T_star = self.mp.data.T_n[self.NODE]
+
+        self.data.sens_vessels = []
+        self.data.sens_ports = []
+        self.data.sens_routes_vessels = []
+        self.data.obj_vals = []
         
         return
 
@@ -72,10 +77,8 @@ class Subproblem:
         K_i = self.mp.data.K_i
         W = self.mp.data.W
 
-        if self.mp.data.WEEKLY_ROUTING == True:
-            self.variables.routes_vessels = m.addVars(make_weekly_routes_vessels_variables(V, R_v, T, W, S), vtype=GRB.CONTINUOUS, name="Routes sailed")
-        else: 
-            self.variables.routes_vessels = m.addVars(make_routes_vessels_variables(V, R_v, T, S), vtype=GRB.CONTINUOUS, name="Routes sailed")
+        #self.variables.routes_vessels = m.addVars(make_routes_vessels_variables(V, R_v, T, S), vtype=GRB.CONTINUOUS, name="Routes sailed")
+        self.variables.routes_vessels = m.addVars(make_routes_vessels_variables(V, R_v, self.mp.data.T, self.mp.data.S), vtype=GRB.CONTINUOUS, name="Routes sailed")
         self.variables.delivery_vessel = m.addVars(make_delivery_vessel_variables(V, R_v, P_r, T, W, S), vtype=GRB.CONTINUOUS, name="Delivery by vessel")
         self.variables.pickup_vessel = m.addVars(make_delivery_vessel_variables(V, R_v, P_r, T,W,S), vtype=GRB.CONTINUOUS, name="Pick-up by vessels")
         self.variables.delivery_truck = m.addVars(make_delivery_truck_variables(P, K_i, T, W, S), vtype=GRB.CONTINUOUS, name="Delivery by truck")
@@ -87,6 +90,8 @@ class Subproblem:
         self.variables.ports_free = m.addVars(product(P,N), vtype=GRB.CONTINUOUS, name="Port investment")
 
         m.update()
+
+        return
 
     def _build_objective(self):
         m = self.m
@@ -124,10 +129,6 @@ class Subproblem:
 
         SP_truck_opex = (52/NUM_WEEKS) * gp.quicksum(PROB_SCENARIO.iloc[0,s] * TRUCK_COST[i,k,t,s]*(delivery_truck[(i,k,t,w,s)]+pickup_truck[(i,k,t,w,s)]) for k in K for i in P_k[k] 
         for t in T for w in W for s in S)
-
-        self.data.sens_vessels = []
-        self.data.sens_ports = []
-        self.data.obj_vals = []
 
         m.setObjective(SP_vessel_opex + SP_truck_opex, gp.GRB.MINIMIZE)
 
@@ -221,7 +222,6 @@ class Subproblem:
         
         self.constraints.c14 = m.addConstrs(load[(0,v,r,t,w,s)] - pickup_vessel[(0,v,r,t,w,s)] == 0 
         for v in V for r in R_v[v] for t in T for w in W for s in S)
-
 
         self.constraints.fix_vessels = m.addConstrs(vessels_free[(v,n)] == 0 for v in V for n in N)
 

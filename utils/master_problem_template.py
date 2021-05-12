@@ -1,21 +1,19 @@
 # Import libraries
 import gurobipy as gp
 from gurobipy import GRB
-from numpy.core.fromnumeric import shape
 import pandas as pd
 import numpy as np
 from itertools import product
-
 from time import time
+
 # Import other classes
-from subproblems.subproblem import Subproblem
 from utils.full_problem import Full_problem
 
 # Import helper functions
 from utils.special_set_generators import beta_set_generator, arc_set_generator, port_route_set_generator, route_vessel_set_generator, route_vessel_port_set_generator, port_customer_set_generator, scenario_node_set_generator, year_node_set_generator, parent_node_set_generator
 from utils.cost_generators import vessel_investment, port_investment, sailing_cost, truck_cost, port_handling_cost
 from utils.short_term_uncertainty import draw_weekly_demand
-from utils.misc_functions import get_same_year_nodes, nodes_with_new_investments
+from utils.misc_functions import get_same_year_nodes
 from utils.feasibility_preprocessing import preprocess_feasibility
 from utils.route_preprocessing import preprocess_routes
 
@@ -25,7 +23,7 @@ class expando(object):
 
 # Master problem
 class Master_problem:
-    def __init__(self, INSTANCE, NUM_WEEKS, NUM_SCENARIOS, NUM_VESSELS, MAX_PORT_VISITS, DRAW, WEEKLY_ROUTING, DISCOUNT_FACTOR, BENDERS_GAP, MAX_ITERS, TIME_LIMIT, warm_start):
+    def __init__(self, INSTANCE, NUM_WEEKS=1, NUM_SCENARIOS=27, NUM_VESSELS=1, MAX_PORT_VISITS=1, DRAW=False, WEEKLY_ROUTING=False, DISCOUNT_FACTOR=1, BENDERS_GAP=0.001, MAX_ITERS=1000, TIME_LIMIT=7200, warm_start=True):
         self.INSTANCE = INSTANCE
         self.MAX_ITERS = MAX_ITERS
         self.TIME_LIMIT = TIME_LIMIT
@@ -111,6 +109,7 @@ class Master_problem:
         self._make_demand_data()
 
         #GENERAL DATA
+        self.data.warm_start_solve_time = 0
         self.data.mp_solve_time = []
         self.data.sp_solve_time = []
         self.data.upper_bounds = [GRB.INFINITY]
@@ -188,6 +187,8 @@ class Master_problem:
         self._build_constraints()
         self._build_objective()
         self.m.update()
+        
+        return
 
     def _build_variables(self):
         #Fetch data
@@ -249,13 +250,8 @@ class Master_problem:
             print(f'Iteration {self.iter}. Bounds not applicable')
         
         # 4.1 Relative gap < 1%
-        if ub <= lb + 0.0001*lb:
+        if ub <= lb*1.0001:
             print(f'**OPTIMAL SOLUTION FOUND: {int(ub*1e-6)}**')
-            terminate = True
-            # 4.2 Absolute gap   
-        elif ub - lb <= 1e6:
-            print(f'**ABSOLUTE GAP**')
-            print(self.iter)
             terminate = True
             # 4.3 Number of iterations
         elif self.iter > self.MAX_ITERS:
@@ -268,6 +264,7 @@ class Master_problem:
         return terminate
     
     def _warm_start(self):
+        t0 = time()
 
         self.fp = Full_problem(self, SCENARIOS = [4])
         self.fp.solve()
@@ -276,47 +273,16 @@ class Master_problem:
         for n in self.data.N:
             self.subproblems[n].update_fixed_vars() 
             self.subproblems[n].solve()
-        #self._add_unicut()
-        self._add_multicut(self.data.N)
+        self._add_cut(self.data.N)
         #self._update_vessel_changes(self.fp)
         self.warm_start = False
-
-        return
-            
-    def _add_unicut(self):
-        m = self.m
-
-        #Imports sets and other necessary data
-        V = self.data.V
-        P = self.data.P
-        N = self.data.N
-        NP_n = self.data.NP_n
-
-        # Define dictionaries for sensitivities and objective values of the subproblems
-        z_sub = dict.fromkeys(N)
-        sens_ports = pd.DataFrame(data = np.zeros(shape=(len(P),len(N))))
-        sens_vessels = pd.DataFrame(data = np.zeros(shape=(len(V),len(N))))
-
-        for n in N:
-            # Get the probability adjusted objective values of the subproblems 
-            z_sub[n] = self.subproblems[n].m.ObjVal
-            for v in V:
-                sens_vessels.iloc[v,n] = self.subproblems[n].constraints.fix_vessels[(v,n)].pi
-            for i in P:
-                sens_ports.iloc[i,n] = self.subproblems[n].constraints.fix_ports[(i,n)].pi
         
-        # Generate cut
-        lhs = self.variables.phi[0]
-        rhs = gp.quicksum(z_sub[n]+
-        gp.quicksum(sens_vessels.iloc[v,n] * gp.quicksum(self.variables.vessels[(v,m)]-self.subproblems[m].variables.vessels_free[(v,m)].x for m in NP_n[n]) for v in V) +
-        gp.quicksum(sens_ports.iloc[i,n] * (self.variables.ports[(i,n)]-self.subproblems[n].variables.ports_free[(i,n)].x) for i in P[1:])
-        for n in N)
-
-        m.addConstr(lhs >= rhs)
+        t1 = time()
+        self.data.warm_start_solve_time = t1-t0
 
         return
 
-    def _add_multicut(self, N):
+    def _add_cut(self, N):
         m = self.m
 
         #Imports sets and other necessary data
