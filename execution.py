@@ -12,6 +12,7 @@ from csv import writer
 from algorithms.mp_2optimality import MP_2opt
 from algorithms.mp_branch_and_cut import MP_BBC
 from algorithms.mp_parallel_subproblems import MP_parallelSPs
+from algorithms.mp_unicut import MP_unicut
 
 def make_kwargs(row, arg_names):
     kwargs = {}
@@ -70,7 +71,7 @@ def run_pipeline():
         elif algo == 'MP_BBC':
             mp = MP_BBC(kwargs)
         elif algo == 'MP_unicut':
-            mp = MP_BBC(kwargs) # NB FIX
+            mp = MP_unicut(kwargs)
         else: 
             raise ValueError('Invalid algorithm name')
         

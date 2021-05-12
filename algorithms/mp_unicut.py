@@ -6,7 +6,7 @@ from algorithms.mp_2optimality import MP_2opt
 
 class MP_unicut(MP_2opt):
     def __init__(self, kwargs) -> None:
-        super().__init__(**kwargs)
+        super().__init__(kwargs)
 
     def _add_cut(self, N):
         m = self.m
