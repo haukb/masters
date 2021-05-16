@@ -1,5 +1,6 @@
 import ray
 from time import time
+import numpy as np
 
 from utils.master_problem_template import Master_problem, expando
 from utils.full_problem import Full_problem
@@ -23,7 +24,7 @@ class MP_parallelSPs(Master_problem):
         run_start = time()
         ray.init()
         m = self.m
-        # mp2sp_iterations = np.zeros([self.MAX_ITERS,self.data.NUM_NODES], dtype=int)
+        mp2sp_iterations = np.zeros([self.MAX_ITERS, self.data.NUM_NODES], dtype=int)
 
         # Build the subproblems as remote actors in ray,
         # and store the references in the master problem
@@ -46,12 +47,19 @@ class MP_parallelSPs(Master_problem):
 
             # 2. Solve subproblems
             t0 = time()
-            # N_changed, mp2sp_iterations = nodes_with_new_investments(mp2sp_iterations,
-            # self.iter, self.data.vessels, self.data.ports, self.data.V, self.data.P,
-            # self.data.N, self.data.NP_n)
-            # N_4bounds = mp2sp_iterations[self.iter,:]
-            N_changed = self.data.N
-            N_4bounds = [self.iter for n in self.data.N]
+            N_changed, mp2sp_iterations = nodes_with_new_investments(
+                mp2sp_iterations,
+                self.iter,
+                self.data.vessels,
+                self.data.ports,
+                self.data.V,
+                self.data.P,
+                self.data.N,
+                self.data.NP_n,
+            )
+            N_4bounds = mp2sp_iterations[self.iter, :]
+            # N_changed = self.data.N
+            # N_4bounds = [self.iter for n in self.data.N]
 
             [self.sp_refs[n]._update_fixed_vars.remote(self.data) for n in N_changed]
 

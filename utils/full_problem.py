@@ -1,6 +1,7 @@
 # Import Gurobi Library
 import gurobipy as gp
 from gurobipy import GRB
+from time import time
 
 from itertools import product
 
@@ -25,7 +26,7 @@ class Full_problem:
         self.data = expando()
         self.SCENARIOS = SCENARIOS
 
-        if SCENARIOS == None:
+        if SCENARIOS is None:
             self.data.S = self.mp.data.S
         else:
             self.data.S = SCENARIOS
@@ -36,7 +37,11 @@ class Full_problem:
         self._build_model()
 
     def solve(self):
+        self.m.setParam("TimeLimit", self.mp.data.TIME_LIMIT)
+        t0 = time()
         self.m.optimize()
+        t1 = time()
+        self.data.solve_time = t1 - t0
         return
 
     ###
@@ -62,7 +67,7 @@ class Full_problem:
         V = self.mp.data.V
         P = self.mp.data.P
         P_r = self.mp.data.P_r
-        if self.SCENARIOS == None:  # Solving for all scenarios
+        if self.SCENARIOS is None:  # Solving for all scenarios
             N = self.mp.data.N
         else:
             N = self.mp.data.N_s[S[0]]  # Solving deterministic 1-scenario problem

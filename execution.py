@@ -1,6 +1,8 @@
 # Standard library imports
 
 # Special library imports
+from utils.full_problem import Full_problem
+from utils.master_problem_template import Master_problem
 import pandas as pd
 import dill
 
@@ -38,7 +40,7 @@ def get_next_run():
     return row
 
 
-def save_run(mp, row):
+def save_run(model, row):
     # Read the run_ids df
     run_ids = pd.read_csv("Execution/Run_ids.csv", index_col=0)
     # add a new empty row on top
@@ -48,7 +50,7 @@ def save_run(mp, row):
     run_ids.iloc[0] = row
     run_ids.to_csv("Execution/Run_ids.csv")
     with open(f"Results/{run_ids.index[0]}.obj", "wb") as dill_file:
-        dill.dump(mp.data, dill_file)
+        dill.dump(model.data, dill_file)
 
     return
 
@@ -68,18 +70,21 @@ def run_pipeline():
         parameters = row[1:]
         kwargs = make_kwargs(parameters, arg_names)
         if algo == "MP_2opt":
-            mp = MP_2opt(kwargs)
+            model = MP_2opt(kwargs)
         elif algo == "MP_parallelSPs":
-            mp = MP_parallelSPs(kwargs)
+            model = MP_parallelSPs(kwargs)
         elif algo == "MP_BBC":
-            mp = MP_BBC(kwargs)
+            model = MP_BBC(kwargs)
         elif algo == "MP_unicut":
-            mp = MP_unicut(kwargs)
+            model = MP_unicut(kwargs)
+        elif algo == "Commercial":
+            model = Full_problem(Master_problem(**kwargs))
+
         else:
             raise ValueError("Invalid algorithm name")
 
-        mp.solve()
-        save_run(mp, row)
+        model.solve()
+        save_run(model, row)
 
     return
 
