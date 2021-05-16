@@ -1,12 +1,8 @@
 # Standard library imports
-import os
-from time import process_time
 
 # Special library imports
-from numpy.testing._private.utils import runstring
 import pandas as pd
 import dill
-from csv import writer
 
 # Local imports
 from algorithms.mp_2optimality import MP_2opt
@@ -63,7 +59,7 @@ def run_pipeline():
         str.split(pipeline.columns[c], " ")[0] for c in range(1, pipeline.shape[1])
     ]
     while True:
-        # Check if there are any more runs in the pipeline
+        # Check if there are any more runs in the pipeline, should be done "cleaner"
         try:
             row = get_next_run()
         except:

@@ -12,6 +12,7 @@ from utils.variables_generators import (
 )
 from utils.misc_functions import get_same_year_nodes
 
+
 # Class which can have attributes set.
 class expando(object):
     pass
@@ -37,7 +38,7 @@ class Subproblem:
     def solve(self):
         self.m.optimize()
         self._save_vars()
-        if self.PARALLEL == True:
+        if self.PARALLEL is True:
             return self.data
         else:
             return
@@ -51,6 +52,11 @@ class Subproblem:
         self.data.sens_ports = []
         self.data.sens_routes_vessels = []
         self.data.obj_vals = []
+        self.data.delivery_vessel = []
+        self.data.delivery_truck = []
+        self.data.pickup_vessel = []
+        self.data.pickup_truck = []
+        self.data.routes_vessels = []
 
         return
 
@@ -156,7 +162,7 @@ class Subproblem:
         routes_vessels = self.variables.routes_vessels
 
         # Make subproblem objective function expression
-        SP_vessel_opex = (52 / NUM_WEEKS) * gp.quicksum(
+        vessel_opex = (52 / NUM_WEEKS) * gp.quicksum(
             PROB_SCENARIO.iloc[0, s]
             * gp.quicksum(
                 SAILING_COST[v, r, t] * routes_vessels[(v, r, t, s)]
@@ -176,7 +182,7 @@ class Subproblem:
             for s in S
         )
 
-        SP_truck_opex = (52 / NUM_WEEKS) * gp.quicksum(
+        truck_opex = (52 / NUM_WEEKS) * gp.quicksum(
             PROB_SCENARIO.iloc[0, s]
             * TRUCK_COST[i, k, t, s]
             * (delivery_truck[(i, k, t, w, s)] + pickup_truck[(i, k, t, w, s)])
@@ -187,7 +193,7 @@ class Subproblem:
             for s in S
         )
 
-        m.setObjective(SP_vessel_opex + SP_truck_opex, gp.GRB.MINIMIZE)
+        m.setObjective(vessel_opex + truck_opex, gp.GRB.MINIMIZE)
 
     def _build_constraints(self):
         # Fetch model
@@ -397,7 +403,9 @@ class Subproblem:
     def _save_vars(self):
         V = self.mp.data.V
         P = self.mp.data.P
+        # Save the objective value
         self.data.obj_vals.append(self.m.ObjVal)
+        # Save the sensitivity values
         self.data.sens_vessels.append(
             [self.constraints.fix_vessels[(v, self.NODE)].pi for v in V]
         )
@@ -405,7 +413,35 @@ class Subproblem:
             [self.constraints.fix_ports[(i, self.NODE)].pi for i in P]
         )
 
-    def update_fixed_vars(self):
+        # Save the variable values
+        routes_vessels = {}
+        for k, v in self.variables.routes_vessels.iteritems():
+            routes_vessels[k] = v.x
+        self.data.routes_vessels.append(routes_vessels)
+
+        delivery_vessel = {}
+        for k, v in self.variables.delivery_vessel.iteritems():
+            delivery_vessel[k] = v.x
+        self.data.delivery_vessel.append(delivery_vessel)
+
+        pickup_vessel = {}
+        for k, v in self.variables.pickup_vessel.iteritems():
+            pickup_vessel[k] = v.x
+        self.data.pickup_vessel.append(pickup_vessel)
+
+        delivery_truck = {}
+        for k, v in self.variables.delivery_truck.iteritems():
+            delivery_truck[k] = v.x
+        self.data.delivery_truck.append(delivery_truck)
+
+        pickup_truck = {}
+        for k, v in self.variables.pickup_truck.iteritems():
+            pickup_truck[k] = v.x
+        self.data.pickup_truck.append(pickup_truck)
+
+        return
+
+    def _update_fixed_vars(self):
 
         for n in self.mp.data.N:
             for i in self.mp.data.P:
@@ -417,7 +453,7 @@ class Subproblem:
 
         return
 
-    def update_fixed_vars_callback(self, model=None):
+    def _update_fixed_vars_callback(self, model=None):
 
         if model is None:
             for n in self.mp.data.N:

@@ -7,7 +7,6 @@ from gurobipy import GRB
 # Internal imports
 from algorithms.mp_parallel_subproblems import MP_parallelSPs
 from utils.variables_generators import make_routes_vessels_variables
-from utils.misc_functions import get_same_year_nodes
 from subproblems.subproblem_adhoc import Subproblem_adhoc
 
 
@@ -20,14 +19,14 @@ class MP_adhoc(MP_parallelSPs):
         self.sp_refs = {n: Subproblem_adhoc.remote(n, self.data) for n in self.data.N}
         return
 
-    def _add_adhoc_extensions(self):
+    def _add_adhoc_extensions(self) -> None:
         self._add_adhoc_variables()
         self._add_adhoc_constraints()
         self._add_adhoc_data()
 
         return
 
-    def _add_adhoc_variables(self):
+    def _add_adhoc_variables(self) -> None:
         T = self.data.T
         S = self.data.S
         V = self.data.V
@@ -41,7 +40,7 @@ class MP_adhoc(MP_parallelSPs):
 
         return
 
-    def _add_adhoc_constraints(self):
+    def _add_adhoc_constraints(self) -> None:
         # Declarations/imports for readability
         N_s = self.data.N_s
         V = self.data.V
@@ -70,18 +69,12 @@ class MP_adhoc(MP_parallelSPs):
 
         return
 
-    def _add_adhoc_data(self):
-        self.data.routes_vessels = {}
-
-        for v in self.data.V:
-            for r in self.data.R_v[v]:
-                for t in self.data.T:
-                    for s in self.data.S:
-                        self.data.routes_vessels[(v, r, t, s)] = []
+    def _add_adhoc_data(self) -> None:
+        self.data.routes_vessels = []
 
         return
 
-    def _add_cut(self, N, sp_data):
+    def _add_cut(self, N, sp_data) -> None:
         m = self.m
 
         # Declarations/imports for readability
@@ -117,10 +110,10 @@ class MP_adhoc(MP_parallelSPs):
                     for i in P[1:]
                 )
                 + gp.quicksum(
-                    sens_routes_vessels[v][r, t, s]
+                    sens_routes_vessels[v, r, t, s]
                     * (
                         self.variables.routes_vessels[(v, r, t, s)]
-                        - self.data.routes_vessels[(v, r, t, s)][-1]
+                        - self.data.routes_vessels[-1][(v, r, t, s)]
                     )
                     for v in V
                     for r in R_v[v]
@@ -132,27 +125,26 @@ class MP_adhoc(MP_parallelSPs):
 
         return
 
-    def _save_vars(self, model=None):
-        # First save the variables as normal, if model != None it means it is from the warm start runs
-        if model == None:
+    def _save_vars(self, model=None) -> None:
+        routes_vessels = {}
+        # Simple additional routing to save adhoc variables
+        if model is None:
             super()._save_vars()
-            m = self
+            for k, v in self.variables.routes_vessels.iteritems():
+                routes_vessels[k] = v.x
+                self.data.routes_vessels.append(routes_vessels)
+        # Special case if in warm start iteration
         else:
             super()._save_vars(model)
-            m = model
+            s_solved = model.data.S[0]
+            for v in self.data.V:
+                for r in self.data.R_v[v]:
+                    for t in self.data.T:
+                        for s in self.data.S:
+                            routes_vessels[v, r, t, s] = model.variables.routes_vessels[
+                                (v, r, t, s_solved)
+                            ].x
 
-        # Then save the routing variables spesific to the adhoc implementation
-        for v in self.data.V:
-            for r in self.data.R_v[v]:
-                for t in self.data.T:
-                    for s in self.data.S:
-                        if model == None:
-                            s_solved = s
-                        else:
-                            s_solved = model.data.S[0]
-
-                        self.data.routes_vessels[(v, r, t, s)].append(
-                            m.variables.routes_vessels[(v, r, t, s_solved)].x
-                        )
+        self.data.routes_vessels.append(routes_vessels)
 
         return

@@ -1,6 +1,7 @@
 import ray
 from subproblems.subproblem import Subproblem
 
+
 # Subproblem
 @ray.remote
 class Subproblem_parallel(Subproblem):
@@ -8,7 +9,7 @@ class Subproblem_parallel(Subproblem):
         super().__init__(NODE=NODE, data=data, PARALLEL=True)
         return
 
-    def update_fixed_vars(self, updated_data):
+    def _update_fixed_vars(self, updated_data):
 
         for n in self.mp.data.N:
             for i in self.mp.data.P:

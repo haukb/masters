@@ -4,7 +4,7 @@ from time import time
 
 from utils.master_problem_template import Master_problem
 from subproblems.subproblem import Subproblem
-from utils.misc_functions import get_same_year_nodes, nodes_with_new_investments
+from utils.misc_functions import get_same_year_nodes
 
 
 class MP_BBC(Master_problem):
@@ -35,13 +35,18 @@ class MP_BBC(Master_problem):
         ):  # Define within the solve function to have access to the mp
             # 1. Find the next IP-solution to the MP
             if where == GRB.Callback.MIPSOL:
+                self.data.mp_t1 = time()
+                self.data.mp_solve_time.append(self.data.mp_t1 - self.data.mp_t0)
                 self.iter += 1
                 # 2. Save the investment variables
                 self._save_vars()
+                self.data.sp_t0 = time()
                 # 3. Solve subproblems with the new investment variables
                 for n in self.data.N:  # OLD replace N_changed with mp.data.N
-                    self.subproblems[n].update_fixed_vars_callback()
+                    self.subproblems[n]._update_fixed_vars_callback()
                     self.subproblems[n].solve()
+                self.data.sp_t1 = time()
+                self.data.sp_solve_time.append(self.data.sp_t1 - self.data.sp_t0)
                 # 4. Update bounds
                 self._update_bounds()
                 # 5. Check termination
@@ -50,8 +55,11 @@ class MP_BBC(Master_problem):
                 else:
                     self._add_lazy_cut(self.data.N)
 
+                self.data.mp_t0 = time()
+
             return
 
+        self.data.mp_t0 = time()
         self.m.optimize(callback)
 
         return

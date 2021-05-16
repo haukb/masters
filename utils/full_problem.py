@@ -12,6 +12,7 @@ from .variables_generators import (
     make_weekly_routes_vessels_variables,
 )
 
+
 # Class which can have attributes set.
 class expando(object):
     pass

@@ -8,6 +8,7 @@ from time import time
 
 # Import other classes
 from utils.full_problem import Full_problem
+from subproblems.subproblem import Subproblem
 
 # Import helper functions
 from utils.special_set_generators import (
@@ -32,6 +33,7 @@ from utils.short_term_uncertainty import draw_weekly_demand
 from utils.misc_functions import get_same_year_nodes
 from utils.feasibility_preprocessing import preprocess_feasibility
 from utils.route_preprocessing import preprocess_routes
+
 
 # Class which can have attributes set.
 class expando(object):
@@ -229,6 +231,7 @@ class Master_problem:
         self.data.phis = [[] for n in N]
         self.data.vessels = {}
         self.data.ports = {}
+        self.data.sp = {n: expando() for n in N}
         for n in N:
             for v in V:
                 self.data.vessels[(v, n)] = []
@@ -402,6 +405,10 @@ class Master_problem:
 
         return
 
+    def _make_subproblems(self) -> None:
+        self.subproblems = {n: Subproblem(NODE=n, mp=self) for n in self.data.N}
+        return
+
     def _check_termination(self, run_start):
         terminate = False
         try:
@@ -440,7 +447,7 @@ class Master_problem:
         self._save_vars(self.fp)
 
         for n in self.data.N:
-            self.subproblems[n].update_fixed_vars()
+            self.subproblems[n]._update_fixed_vars()
             self.subproblems[n].solve()
         self._add_cut(self.data.N)
         # self._update_vessel_changes(self.fp)
@@ -494,16 +501,12 @@ class Master_problem:
         m = self.m
         N = self.data.N
 
-        try:
-            if N_4bounds == None:
-                N_4bounds = [-1 for n in N]
-        except:
-            pass
+        if N_4bounds is None:
+            N_4bounds = [self.iter for n in N]
 
         # Fetch the current value of the master problem and the artificial variable phi
         z_master = m.ObjVal
         phi_val = sum([self.variables.phi[n].x for n in N])
-
         z_sub_total = sum([self.subproblems[n].data.obj_vals[N_4bounds[n]] for n in N])
 
         # The best upper bound is the best incumbent with phi replaced by the sub problems' actual cost
@@ -519,7 +522,7 @@ class Master_problem:
         return
 
     def _save_vars(self, model=None):
-        if model == None:
+        if model is None:
             for n in self.data.N:
                 self.data.phis[n].append(self.variables.phi[n].x)
                 for v in self.data.V:
@@ -542,7 +545,7 @@ class Master_problem:
         return
 
     def _update_vessel_changes(self, model=None):
-        if model == None:
+        if model is None:
             for n in self.data.N:
                 for v in self.data.V:
                     vessel_val = self.variables.vessels[(v, n)].x

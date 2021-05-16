@@ -1,5 +1,4 @@
 from utils.master_problem_template import Master_problem
-from subproblems.subproblem import Subproblem
 from utils.misc_functions import nodes_with_new_investments
 
 from time import time
@@ -14,9 +13,7 @@ class MP_2opt(Master_problem):
         m = self.m
         # mp2sp_iterations = np.zeros([self.MAX_ITERS,self.data.NUM_NODES], dtype=int)
 
-        # Only build subproblems if they don't exist or a rebuild is forced.
-        if not hasattr(self, "subproblems"):  # or force_submodel_rebuild:
-            self.subproblems = {n: Subproblem(NODE=n, mp=self) for n in self.data.N}
+        self._make_subproblems()
 
         # Warm start algorithm with solution from deteministic problem
         if self.warm_start:
@@ -39,7 +36,7 @@ class MP_2opt(Master_problem):
             # N_changed, mp2sp_iterations = nodes_with_new_investments(mp2sp_iterations, mp.iter, mp.data.vessels, mp.data.ports, mp.data.V, mp.data.P, mp.data.N, mp.data.NP_n)
 
             for n in self.data.N:  # OLD replace N_changed with mp.data.N
-                self.subproblems[n].update_fixed_vars()
+                self.subproblems[n]._update_fixed_vars()
                 self.subproblems[n].solve()
             t1 = time()
             self.data.sp_solve_time.append(t1 - t0)

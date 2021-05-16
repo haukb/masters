@@ -152,5 +152,8 @@ __pycache__
 #/Data
 /Data
 
-#master_problem.py
+#master_problem.py, needed to read old results as for now
 master_problem.py
+
+#OUTPUTS
+/OUTPUTS
