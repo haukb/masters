@@ -231,7 +231,7 @@ class Master_problem:
         self.data.phis = [[] for n in N]
         self.data.vessels = {}
         self.data.ports = {}
-        self.data.sp = {n: expando() for n in N}
+        self.sp_data = {n: expando() for n in N}
         for n in N:
             for v in V:
                 self.data.vessels[(v, n)] = []
@@ -332,9 +332,9 @@ class Master_problem:
     #   Model Building
     ###
     def _build_model(self):
-        self.m = gp.Model()
-        self.m.setParam("LazyConstraints", 1)  # Allow the use of lazy constraints
-        self.m.setParam("OutputFlag", 0)  # Suppress default output
+        self.m = gp.Model(env=gp.Env(params={"OutputFlag": 0, "LazyConstraints": 1}))
+        # self.m.setParam("LazyConstraints", 1)  # Allow the use of lazy constraints
+        # self.m.setParam("OutputFlag", 0)  # Suppress default output
         self._build_variables()
         self._build_constraints()
         self._build_objective()

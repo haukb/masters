@@ -16,6 +16,9 @@ def nodes_with_new_investments(
     mp2sp_iterations, mp_iter, vessels, ports, V, P, N, NP_n
 ):
     N_changed = list(N.copy())
+    # If in the first iteration, nothing need to be checked
+    if mp_iter == 0:
+        return N_changed, mp2sp_iterations
     for n in N:
         cum_vessels_latest = np.array(
             [sum([vessels[(v, m)][-1] for m in NP_n[n]]) for v in V]

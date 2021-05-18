@@ -1,4 +1,5 @@
 from utils.master_problem_template import Master_problem
+from utils.economic_analysis import run_economic_analysis
 from utils.misc_functions import nodes_with_new_investments
 
 from time import time
@@ -55,4 +56,7 @@ class MP_2opt(Master_problem):
             self._add_cut(self.data.N)
             # self._update_vessel_changes()
 
+        for n in self.data.N:
+            self.sp_data[n] = self.subproblems[n].data
+        self.run_economic_analysis()
         return

@@ -69,6 +69,7 @@ def run_pipeline():
         algo = row[0]
         parameters = row[1:]
         kwargs = make_kwargs(parameters, arg_names)
+        print(kwargs)
         if algo == "MP_2opt":
             model = MP_2opt(kwargs)
         elif algo == "MP_parallelSPs":

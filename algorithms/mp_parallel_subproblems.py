@@ -7,6 +7,7 @@ from utils.full_problem import Full_problem
 from subproblems.subproblem_parallel import Subproblem_parallel
 
 from utils.misc_functions import nodes_with_new_investments
+from utils.economic_analysis import run_economic_analysis
 
 
 class MP_parallelSPs(Master_problem):
@@ -29,6 +30,7 @@ class MP_parallelSPs(Master_problem):
         # Build the subproblems as remote actors in ray,
         # and store the references in the master problem
         self._make_subproblems()
+        self.data.SPs_solved = 0
 
         # Warm start algorithm with solution from deteministic problem
         if self.warm_start:
@@ -58,6 +60,7 @@ class MP_parallelSPs(Master_problem):
                 self.data.NP_n,
             )
             N_4bounds = mp2sp_iterations[self.iter, :]
+            self.data.SPs_solved += len(N_changed)
             # N_changed = self.data.N
             # N_4bounds = [self.iter for n in self.data.N]
 
@@ -86,9 +89,11 @@ class MP_parallelSPs(Master_problem):
 
         ray.shutdown()
 
-        # This line also save the sp data, directly to the mp' data, so that it can be access in later analysis
+        # This line also save the sp data, directly to the mp, so that it can be access in later analysis
         for n in self.data.N:
-            self.data.sp[n] = self.subproblems[n].data
+            self.sp_data[n] = self.subproblems[n].data
+        # Run the economic analysis
+        # run_economic_analysis(model=self)
         return
 
     def _warm_start(self) -> None:
@@ -102,6 +107,7 @@ class MP_parallelSPs(Master_problem):
         sp_data = ray.get([self.sp_refs[n].solve.remote() for n in self.data.N])
         for n in self.data.N:
             self.subproblems[n].data = sp_data[n]
+        self.data.SPs_solved += 13
 
         self._add_cut(self.data.N)
         # self._update_vessel_changes(self.fp)

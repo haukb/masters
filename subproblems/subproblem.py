@@ -64,8 +64,13 @@ class Subproblem:
     #   Model Building
     ###
     def _build_model(self):
-        self.m = gp.Model()
-        self.m.setParam("OutputFlag", 0)  # Suppress default output
+        self.m = gp.Model(
+            env=gp.Env(
+                params={
+                    "OutputFlag": 0,
+                }
+            )
+        )
         self._build_variables()
         self._build_objective()
         self._build_constraints()

@@ -37,11 +37,13 @@ class Full_problem:
         self._build_model()
 
     def solve(self):
-        self.m.setParam("TimeLimit", self.mp.data.TIME_LIMIT)
+        self.m.setParam("TimeLimit", self.mp.TIME_LIMIT)
         t0 = time()
         self.m.optimize()
         t1 = time()
         self.data.solve_time = t1 - t0
+        if self.SCENARIOS is None:
+            self._save_result_values()
         return
 
     ###
@@ -350,12 +352,21 @@ class Full_problem:
         routes_vessels = self.variables.routes_vessels
 
         # Calculate the expression for both investment and opertational cost
-        self.data.investment_costs = investment_costs = gp.quicksum(
+        self.data.vessel_capex = vessel_capex = gp.quicksum(
             PROB_SCENARIO.iloc[0, s]
             * (
                 gp.quicksum(
                     gp.quicksum(VESSEL_INVESTMENT[v, n] * vessels[(v, n)] for v in V)
-                    + gp.quicksum(PORT_INVESTMENT[i, n] * ports[(i, n)] for i in P)
+                    for n in N_s[s]
+                )
+            )
+            for s in S
+        )
+        self.data.port_capex = port_capex = gp.quicksum(
+            PROB_SCENARIO.iloc[0, s]
+            * (
+                gp.quicksum(
+                    gp.quicksum(PORT_INVESTMENT[i, n] * ports[(i, n)] for i in P)
                     for n in N_s[s]
                 )
             )
@@ -399,10 +410,51 @@ class Full_problem:
             for s in S
         )
 
-        self.data.total_costs = total_costs = (
-            investment_costs + truck_opex + vessel_opex
-        )
+        total_costs = vessel_capex + port_capex + truck_opex + vessel_opex
 
         m.setObjective(total_costs, gp.GRB.MINIMIZE)
+
+        return
+
+    def _save_result_values(self):
+        # Declarations for readability
+        PROB_SCENARIO = self.mp.data.PROB_SCENARIO
+        NUM_WEEKS = self.mp.data.NUM_WEEKS
+        PORT_CUSTOMER_DISTANCES = self.mp.data.PORT_CUSTOMER_DISTANCES
+        T_n = self.mp.data.T_n
+        S_n = self.mp.data.S_n
+        K = self.mp.data.K
+        P_k = self.mp.data.P_k
+        W = self.mp.data.W
+
+        # first save already calculated variables as values
+        self.data.truck_opex = self.data.truck_opex.getValue()
+        self.data.vessel_opex = self.data.vessel_opex.getValue()
+        self.data.port_capex = self.data.port_capex.getValue()
+        self.data.vessel_capex = self.data.vessel_capex.getValue()
+
+        # then calculate the truck distance
+
+        truck_distance = 0
+        for n in self.mp.data.N:
+
+            T_star = T_n[n]
+            S_star = S_n[n]
+
+            truck_distance += (52 / NUM_WEEKS) * gp.quicksum(
+                PROB_SCENARIO.iloc[0, s]
+                * PORT_CUSTOMER_DISTANCES.iloc[i, k]
+                * (
+                    self.variables.delivery_truck[(i, k, t, w, s)]
+                    + self.variables.pickup_truck[(i, k, t, w, s)]
+                )
+                for k in K
+                for i in P_k[k]
+                for t in T_star
+                for w in W
+                for s in S_star
+            ).getValue()
+
+        self.data.truck_distance = truck_distance
 
         return
