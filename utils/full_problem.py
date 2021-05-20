@@ -37,7 +37,6 @@ class Full_problem:
         self._build_model()
 
     def solve(self):
-        self.m.setParam("TimeLimit", self.mp.TIME_LIMIT)
         t0 = time()
         self.m.optimize()
         t1 = time()
@@ -50,9 +49,9 @@ class Full_problem:
     #   Model Building
     ###
     def _build_model(self):
-        self.m = gp.Model()
-        # self.m.setParam('TimeLimit', 120)
-        self.m.setParam("OutputFlag", 0)  # Suppress default output
+        self.m = gp.Model(
+            env=gp.Env(params={"OutputFlag": 0, "TimeLimit": self.mp.TIME_LIMIT})
+        )
         self._build_variables()
         self._build_objective()
         self._build_constraints()
@@ -456,5 +455,9 @@ class Full_problem:
             ).getValue()
 
         self.data.truck_distance = truck_distance
+
+        self.data.solution = self.m.ObjVal
+        self.data.gap = self.m.MIPGap
+        self.data.runtime = self.m.Runtime
 
         return

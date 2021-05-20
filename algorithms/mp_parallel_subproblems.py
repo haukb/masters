@@ -48,31 +48,31 @@ class MP_parallelSPs(Master_problem):
             print(f"Time spent solving MP: {round(t1-t0,3)}")
 
             # 2. Solve subproblems
-            t0 = time()
-            N_changed, mp2sp_iterations = nodes_with_new_investments(
-                mp2sp_iterations,
-                self.iter,
-                self.data.vessels,
-                self.data.ports,
-                self.data.V,
-                self.data.P,
-                self.data.N,
-                self.data.NP_n,
-            )
-            N_4bounds = mp2sp_iterations[self.iter, :]
+            # N_changed, mp2sp_iterations = nodes_with_new_investments(
+            #    mp2sp_iterations,
+            #    self.iter,
+            #    self.data.vessels,
+            #    self.data.ports,
+            #    self.data.V,
+            #    self.data.P,
+            #    self.data.N,
+            #    self.data.NP_n,
+            # )
+            # N_4bounds = mp2sp_iterations[self.iter, :]
+            N_changed = self.data.N
+            N_4bounds = [self.iter for n in self.data.N]
+
             self.data.SPs_solved += len(N_changed)
-            # N_changed = self.data.N
-            # N_4bounds = [self.iter for n in self.data.N]
 
             [self.sp_refs[n]._update_fixed_vars.remote(self.data) for n in N_changed]
-
+            t0 = time()
             updated_sps = ray.get([self.sp_refs[n].solve.remote() for n in N_changed])
-            for idx, updated_sp in enumerate(updated_sps):
-                self.subproblems[N_changed[idx]].data = updated_sp
-
             t1 = time()
             self.data.sp_solve_time.append(t1 - t0)
             print(f"Time spent solving SP: {round(t1-t0,3)}")
+
+            for idx, updated_sp in enumerate(updated_sps):
+                self.subproblems[N_changed[idx]].data = updated_sp
 
             # 3. Update the bounds on the mp
             self._update_bounds(N_4bounds)
@@ -93,7 +93,7 @@ class MP_parallelSPs(Master_problem):
         for n in self.data.N:
             self.sp_data[n] = self.subproblems[n].data
         # Run the economic analysis
-        # run_economic_analysis(model=self)
+        run_economic_analysis(model=self)
         return
 
     def _warm_start(self) -> None:

@@ -58,5 +58,5 @@ class MP_2opt(Master_problem):
 
         for n in self.data.N:
             self.sp_data[n] = self.subproblems[n].data
-        self.run_economic_analysis()
+        run_economic_analysis(model=self)
         return

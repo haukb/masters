@@ -4,6 +4,7 @@
 import gurobipy as gp
 
 # Local imports
+from utils.plot_data_functions import timeVgap
 
 
 def _find_best_iteration(model):
@@ -191,4 +192,11 @@ def run_economic_analysis(model):
     _calculate_port_capex(model, opt_sol_idx)
     _calculate_vessel_capex(model, opt_sol_idx)
 
+    return
+
+
+def save_obj2csv(run_ids):
+    for i in run_ids:
+        df = timeVgap(run_id=i)
+        df.to_csv(f"OUTPUTS/{i}.csv")
     return

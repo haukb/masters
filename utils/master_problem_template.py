@@ -51,10 +51,10 @@ class Master_problem:
         MAX_PORT_VISITS=1,
         DRAW=False,
         WEEKLY_ROUTING=False,
-        DISCOUNT_FACTOR=1,
+        DISCOUNT_FACTOR=0.95,
         BENDERS_GAP=0.001,
         MAX_ITERS=1000,
-        TIME_LIMIT=7200,
+        TIME_LIMIT=36000,
         warm_start=True,
     ):
         self.INSTANCE = INSTANCE
