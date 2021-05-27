@@ -6,6 +6,7 @@ from gurobipy import GRB
 
 # Internal imports
 from algorithms.mp_parallel_subproblems import MP_parallelSPs
+from utils.master_problem_template import expando
 from utils.variables_generators import make_routes_vessels_variables
 from subproblems.subproblem_adhoc import Subproblem_adhoc
 
@@ -17,11 +18,13 @@ class MP_adhoc(MP_parallelSPs):
 
     def _make_subproblems(self):
         self.sp_refs = {n: Subproblem_adhoc.remote(n, self.data) for n in self.data.N}
+        self.subproblems = {n: expando() for n in self.data.N}
         return
 
     def _add_adhoc_extensions(self) -> None:
         self._add_adhoc_variables()
         self._add_adhoc_constraints()
+        self._update_objective_function()
         self._add_adhoc_data()
 
         return
@@ -69,12 +72,43 @@ class MP_adhoc(MP_parallelSPs):
 
         return
 
+    def _update_objective_function(self) -> None:
+        m = self.m
+
+        # Fetch the selection of scenarios and years for the given subproblem
+        S = self.data.S
+        T = self.data.T
+
+        # Fetch sets from mp
+        V = self.data.V
+        R_v = self.data.R_v
+
+        PROB_SCENARIO = self.data.PROB_SCENARIO
+        SAILING_COST = self.data.SAILING_COST
+        routes_vessels = self.variables.routes_vessels
+        PROB_SCENARIO = self.data.PROB_SCENARIO
+
+        original_objective = self.m.getObjective()
+        routing_cost = gp.quicksum(
+            PROB_SCENARIO.iloc[0, s]
+            * gp.quicksum(
+                SAILING_COST[v, r, t] * routes_vessels[(v, r, t, s)]
+                for v in V
+                for r in R_v[v]
+                for t in T
+            )
+            for s in S
+        )
+        m.setObjective(original_objective + routing_cost)
+        m.update()
+        return
+
     def _add_adhoc_data(self) -> None:
         self.data.routes_vessels = []
 
         return
 
-    def _add_cut(self, N, sp_data) -> None:
+    def _add_cut(self, N) -> None:
         m = self.m
 
         # Declarations/imports for readability
@@ -87,10 +121,10 @@ class MP_adhoc(MP_parallelSPs):
 
         for n in N:
             lhs = self.variables.phi[n]
-            z_sub = sp_data[n].obj_vals[-1]
-            sens_vessels = sp_data[n].sens_vessels[-1]
-            sens_ports = sp_data[n].sens_ports[-1]
-            sens_routes_vessels = sp_data[n].sens_routes_vessels[-1]
+            z_sub = self.subproblems[n].data.obj_vals[-1]
+            sens_vessels = self.subproblems[n].data.sens_vessels[-1]
+            sens_ports = self.subproblems[n].data.sens_ports[-1]
+            sens_routes_vessels = self.subproblems[n].data.sens_routes_vessels[-1]
             rhs = (
                 z_sub
                 + gp.quicksum(
@@ -132,7 +166,6 @@ class MP_adhoc(MP_parallelSPs):
             super()._save_vars()
             for k, v in self.variables.routes_vessels.iteritems():
                 routes_vessels[k] = v.x
-                self.data.routes_vessels.append(routes_vessels)
         # Special case if in warm start iteration
         else:
             super()._save_vars(model)

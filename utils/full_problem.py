@@ -1,7 +1,6 @@
 # Import Gurobi Library
 import gurobipy as gp
 from gurobipy import GRB
-from time import time
 
 from itertools import product
 
@@ -37,10 +36,7 @@ class Full_problem:
         self._build_model()
 
     def solve(self):
-        t0 = time()
         self.m.optimize()
-        t1 = time()
-        self.data.solve_time = t1 - t0
         if self.SCENARIOS is None:
             self._save_result_values()
         return
@@ -50,7 +46,7 @@ class Full_problem:
     ###
     def _build_model(self):
         self.m = gp.Model(
-            env=gp.Env(params={"OutputFlag": 0, "TimeLimit": self.mp.TIME_LIMIT})
+            env=gp.Env(params={"OutputFlag": 0, "TimeLimit": self.mp.data.TIME_LIMIT})
         )
         self._build_variables()
         self._build_objective()

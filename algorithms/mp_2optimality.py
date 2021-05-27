@@ -12,7 +12,7 @@ class MP_2opt(Master_problem):
     def solve(self):
         run_start = time()
         m = self.m
-        # mp2sp_iterations = np.zeros([self.MAX_ITERS,self.data.NUM_NODES], dtype=int)
+        # mp2sp_iterations = np.zeros([self.data.MAX_ITERS,self.data.NUM_NODES], dtype=int)
 
         self._make_subproblems()
 
@@ -21,7 +21,6 @@ class MP_2opt(Master_problem):
             self._warm_start()
 
         while True:
-            self.iter += 1
             # 1. Solve master problem and save variables
             t0 = time()
             m.optimize()
@@ -51,10 +50,12 @@ class MP_2opt(Master_problem):
             # 4. Check termination criterias
             if self._check_termination(run_start):
                 break
-
-            # 5. Add a cut to the mp and update the allowed vessel changes
-            self._add_cut(self.data.N)
-            # self._update_vessel_changes()
+            else:
+                # 5. Add a cut to the mp and update the allowed vessel changes
+                self._add_cut(self.data.N)
+                if self.data.HEURISTICS:
+                    self._update_vessel_changes()
+                self.iter += 1
 
         for n in self.data.N:
             self.sp_data[n] = self.subproblems[n].data

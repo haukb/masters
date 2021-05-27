@@ -33,6 +33,7 @@ from utils.short_term_uncertainty import draw_weekly_demand
 from utils.misc_functions import get_same_year_nodes
 from utils.feasibility_preprocessing import preprocess_feasibility
 from utils.route_preprocessing import preprocess_routes
+from utils.heuristics import max_vessels_heuristic
 
 
 # Class which can have attributes set.
@@ -55,11 +56,11 @@ class Master_problem:
         BENDERS_GAP=0.001,
         MAX_ITERS=1000,
         TIME_LIMIT=36000,
+        HEURISTICS=False,
+        VESSEL_CHANGES=1,
         warm_start=True,
     ):
         self.INSTANCE = INSTANCE
-        self.MAX_ITERS = MAX_ITERS
-        self.TIME_LIMIT = TIME_LIMIT
         self.iter = 0
         self.warm_start = warm_start
         self.data = expando()
@@ -68,6 +69,9 @@ class Master_problem:
         self.results = expando()
         self._load_data(
             INSTANCE,
+            TIME_LIMIT,
+            MAX_ITERS,
+            HEURISTICS,
             NUM_WEEKS,
             NUM_SCENARIOS,
             NUM_VESSELS,
@@ -76,6 +80,7 @@ class Master_problem:
             WEEKLY_ROUTING,
             DISCOUNT_FACTOR,
             BENDERS_GAP,
+            VESSEL_CHANGES,
         )
         self._build_model()
 
@@ -86,6 +91,9 @@ class Master_problem:
     def _load_data(
         self,
         INSTANCE,
+        TIME_LIMIT,
+        MAX_ITERS,
+        HEURISTICS,
         NUM_WEEKS,
         NUM_SCENARIOS,
         NUM_VESSELS,
@@ -94,9 +102,13 @@ class Master_problem:
         WEEKLY_ROUTING,
         DISCOUNT_FACTOR,
         BENDERS_GAP,
+        VESSEL_CHANGES,
     ):
         # DIRECT INPUT
         self.data.NUM_WEEKS = NUM_WEEKS
+        self.data.TIME_LIMIT = TIME_LIMIT
+        self.data.MAX_ITERS = MAX_ITERS
+        self.data.HEURISTICS = HEURISTICS
         self.data.NUM_SCENARIOS = NUM_SCENARIOS
         self.data.NUM_VESSELS = NUM_VESSELS
         self.data.MAX_PORT_VISITS = MAX_PORT_VISITS
@@ -104,6 +116,7 @@ class Master_problem:
         self.data.WEEKLY_ROUTING = WEEKLY_ROUTING
         self.data.DISCOUNT_FACTOR = DISCOUNT_FACTOR
         self.data.BENDERS_GAP = BENDERS_GAP
+        self.data.VESSEL_CHANGES = VESSEL_CHANGES
 
         # INSTANCE DATA
         # Input data
@@ -228,7 +241,7 @@ class Master_problem:
         self.data.sp_solve_time = []
         self.data.upper_bounds = [GRB.INFINITY]
         self.data.lower_bounds = [-GRB.INFINITY]
-        self.data.phis = [[] for n in N]
+        self.data.phis = [[] for _ in N]
         self.data.vessels = {}
         self.data.ports = {}
         self.sp_data = {n: expando() for n in N}
@@ -363,14 +376,30 @@ class Master_problem:
         return
 
     def _build_constraints(self):
-        # Only open port in one time, to hinder "double" opening for dual values in several nodes
+        # Only open a port in one of the years in a scenarios
         self.constraints.max_ports_in_scenario = self.m.addConstrs(
             gp.quicksum(self.variables.ports[(i, n)] for n in self.data.N_s[s]) <= 1
             for i in self.data.P
             for s in self.data.S
         )
-        # self.constraints.limit_vessel_decrease = self.m.addConstrs(self.variables.vessels[(v,n)] <= 0 for v in self.data.V for n in self.data.N)
-        # self.constraints.limit_vessel_increase = self.m.addConstrs(-self.variables.vessels[(v,n)] <= 0 for v in self.data.V for n in self.data.N)
+        if self.data.HEURISTICS:
+            max_vessels = max_vessels_heuristic(self)
+            self.constraints.max_vessels_heuristic = self.m.addConstrs(
+                gp.quicksum(self.variables.vessels[(v, n)] for n in self.data.N_s[s])
+                <= max_vessels[v]
+                for v in self.data.V
+                for s in self.data.S
+            )
+            self.constraints.limit_vessel_decrease = self.m.addConstrs(
+                self.variables.vessels[(v, n)] <= 0
+                for v in self.data.V
+                for n in self.data.N
+            )
+            self.constraints.limit_vessel_increase = self.m.addConstrs(
+                -self.variables.vessels[(v, n)] <= 0
+                for v in self.data.V
+                for n in self.data.N
+            )
         return
 
     def _build_objective(self):
@@ -430,16 +459,17 @@ class Master_problem:
             print(f"**OPTIMAL SOLUTION FOUND: {int(ub*1e-6)}**")
             terminate = True
             # 4.3 Number of iterations
-        elif self.iter > self.MAX_ITERS:
-            print(f"**MAX ITERATIONS REACHED {self.MAX_ITERS}**")
+        elif self.iter + 1 > self.data.MAX_ITERS:
+            print(f"**MAX ITERATIONS REACHED {self.data.MAX_ITERS}**")
             terminate = True
-        elif time() - run_start > self.TIME_LIMIT:
-            print(f"**TIME LIMIT REACHED {self.TIME_LIMIT}**")
+        elif time() - run_start > self.data.TIME_LIMIT:
+            print(f"**TIME LIMIT REACHED {self.data.TIME_LIMIT}**")
             terminate = True
 
         return terminate
 
     def _warm_start(self):
+        print(f"\n>>>ITERATION {self.iter} | warm-start")
         t0 = time()
 
         self.fp = Full_problem(self, SCENARIOS=[4])
@@ -450,11 +480,13 @@ class Master_problem:
             self.subproblems[n]._update_fixed_vars()
             self.subproblems[n].solve()
         self._add_cut(self.data.N)
-        # self._update_vessel_changes(self.fp)
+        if self.data.HEURISTICS:
+            self._update_vessel_changes(self.fp)
         self.warm_start = False
 
         t1 = time()
         self.data.warm_start_solve_time = t1 - t0
+        self.iter += 1
 
         return
 
@@ -502,7 +534,7 @@ class Master_problem:
         N = self.data.N
 
         if N_4bounds is None:
-            N_4bounds = [self.iter for n in N]
+            N_4bounds = [-1 for _ in N]
 
         # Fetch the current value of the master problem and the artificial variable phi
         z_master = m.ObjVal
@@ -549,8 +581,12 @@ class Master_problem:
             for n in self.data.N:
                 for v in self.data.V:
                     vessel_val = self.variables.vessels[(v, n)].x
-                    self.constraints.limit_vessel_decrease[(v, n)].rhs = vessel_val + 1
-                    self.constraints.limit_vessel_increase[(v, n)].rhs = -vessel_val + 1
+                    self.constraints.limit_vessel_decrease[(v, n)].rhs = (
+                        vessel_val + self.data.VESSEL_CHANGES
+                    )
+                    self.constraints.limit_vessel_increase[(v, n)].rhs = (
+                        -vessel_val + self.data.VESSEL_CHANGES
+                    )
         else:
             for n_solved in self.data.N_s[model.data.S[0]]:
                 N = get_same_year_nodes(n_solved, self.data.N, self.data.YEAR_OF_NODE)
@@ -558,10 +594,10 @@ class Master_problem:
                     for v in self.data.V:
                         vessel_val = model.variables.vessels[(v, n_solved)].x
                         self.constraints.limit_vessel_decrease[(v, n)].rhs = (
-                            vessel_val + 1
+                            vessel_val + self.data.VESSEL_CHANGES
                         )
                         self.constraints.limit_vessel_increase[(v, n)].rhs = (
-                            -vessel_val + 1
+                            -vessel_val + self.data.VESSEL_CHANGES
                         )
 
         return

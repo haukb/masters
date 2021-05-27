@@ -417,7 +417,7 @@ class Subproblem:
         self.data.sens_ports.append(
             [self.constraints.fix_ports[(i, self.NODE)].pi for i in P]
         )
-
+        """ CURRENTLY IT MAKES THE MEMORY EXPLODE TO SAVE ALL THESE VARIABLES
         # Save the variable values
         routes_vessels = {}
         for k, v in self.variables.routes_vessels.iteritems():
@@ -443,6 +443,7 @@ class Subproblem:
         for k, v in self.variables.pickup_truck.iteritems():
             pickup_truck[k] = v.x
         self.data.pickup_truck.append(pickup_truck)
+        """
 
         return
 

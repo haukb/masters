@@ -25,7 +25,9 @@ class MP_parallelSPs(Master_problem):
         run_start = time()
         ray.init()
         m = self.m
-        mp2sp_iterations = np.zeros([self.MAX_ITERS, self.data.NUM_NODES], dtype=int)
+        mp2sp_iterations = np.zeros(
+            [self.data.MAX_ITERS, self.data.NUM_NODES], dtype=int
+        )
 
         # Build the subproblems as remote actors in ray,
         # and store the references in the master problem
@@ -49,18 +51,18 @@ class MP_parallelSPs(Master_problem):
 
             # 2. Solve subproblems
             # N_changed, mp2sp_iterations = nodes_with_new_investments(
-            #    mp2sp_iterations,
-            #    self.iter,
-            #    self.data.vessels,
-            #    self.data.ports,
-            #    self.data.V,
-            #    self.data.P,
-            #    self.data.N,
-            #    self.data.NP_n,
+            #     mp2sp_iterations,
+            #     self.iter,
+            #     self.data.vessels,
+            #     self.data.ports,
+            #     self.data.V,
+            #     self.data.P,
+            #     self.data.N,
+            #     self.data.NP_n,
             # )
             # N_4bounds = mp2sp_iterations[self.iter, :]
             N_changed = self.data.N
-            N_4bounds = [self.iter for n in self.data.N]
+            N_4bounds = [-1 for _ in self.data.N]
 
             self.data.SPs_solved += len(N_changed)
 
@@ -84,16 +86,17 @@ class MP_parallelSPs(Master_problem):
             else:
                 # 5. Add a cut to the mp and update the allowed vessel changes
                 self._add_cut(N_changed)
-                # self._update_vessel_changes()
                 self.iter += 1
+                if self.data.HEURISTICS:
+                    self._update_vessel_changes()
 
         ray.shutdown()
 
         # This line also save the sp data, directly to the mp, so that it can be access in later analysis
         for n in self.data.N:
             self.sp_data[n] = self.subproblems[n].data
-        # Run the economic analysis
-        run_economic_analysis(model=self)
+        # Run the economic analysis, not working atm because saving all SP variables is turned off
+        # run_economic_analysis(model=self)
         return
 
     def _warm_start(self) -> None:
@@ -110,7 +113,8 @@ class MP_parallelSPs(Master_problem):
         self.data.SPs_solved += 13
 
         self._add_cut(self.data.N)
-        # self._update_vessel_changes(self.fp)
+        if self.data.HEURISTICS:
+            self._update_vessel_changes(self.fp)
         self.warm_start = False
 
         t1 = time()

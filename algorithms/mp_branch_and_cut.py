@@ -129,7 +129,7 @@ class MP_BBC(Master_problem):
         return
 
     def _save_vars(self, model=None):
-        if model == None:
+        if model is None:
 
             for n in self.data.N:
                 self.data.phis.append(self.m.cbGetSolution(self.variables.phi[n]))

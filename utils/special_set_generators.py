@@ -6,7 +6,7 @@ import numpy as np
 
 def arc_set_generator(ROUTES, R):
     # Preallocate list of lists
-    A = [[] for r in R]
+    A = [[] for _ in R]
 
     for r in R:
         route = iter(ROUTES.iloc[:, r].tolist())
@@ -26,7 +26,7 @@ def arc_set_generator(ROUTES, R):
 
 def port_route_set_generator(ROUTES, P, R):
     # Preallocate list of lists
-    P_r = [[] for r in R]
+    P_r = [[] for _ in R]
 
     for r in R:
         route = iter(ROUTES.iloc[:, r].tolist())
@@ -46,8 +46,8 @@ def port_route_set_generator(ROUTES, P, R):
 
 
 def route_vessel_set_generator(ROUTE_FEASIBILITY, V):
-    R_v = [[] for v in V]
-    not_R_v = [[] for v in V]
+    R_v = [[] for _ in V]
+
     for v in V:
         binary_list = ROUTE_FEASIBILITY.iloc[v, :].tolist()
         for i, route in enumerate(binary_list):
@@ -75,7 +75,7 @@ def route_vessel_port_set_generator(ROUTES, R_v, V, P):
 
 
 def port_customer_set_generator(PORT_CUSTOMER_FEASIBILITY, P, K):
-    P_k = [[] for k in K]
+    P_k = [[] for _ in K]
     for p in P:
         customers = [int(x) for x in PORT_CUSTOMER_FEASIBILITY.iloc[:, p].dropna()]
         for k in customers:
@@ -93,7 +93,7 @@ def beta_set_generator(YEAR_OF_NODE, NUM_NODES, NUM_YEARS):
 
 
 def scenario_node_set_generator(NODES_IN_SCENARIO, N, S):
-    S_n = [[] for n in N]
+    S_n = [[] for _ in N]
     for s in S:
         for n in N:
             if n in NODES_IN_SCENARIO.iloc[:, s].values:
@@ -112,7 +112,7 @@ def year_node_set_generator(NODES_IN_SCENARIO, YEAR_OF_NODE, NUM_YEARS, N):
 
 
 def parent_node_set_generator(NODES_IN_SCENARIO, N):
-    NP_n = [[] for n in N]
+    NP_n = [[] for _ in N]
 
     for i in range(NODES_IN_SCENARIO.shape[0]):
         nodes_in_year = NODES_IN_SCENARIO.iloc[i, :].tolist()
